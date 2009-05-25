@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+This is a test code to test the Flash RTMP server for NetConnection and NetStream.
+-->
+
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" layout="vertical" horizontalAlign="left">
+	
+	<mx:Label text="User interface to test NetConnection and NetStream API calls"/>
+	
+	<mx:HBox>
+		<mx:Label text="NetConnection"/>
+		<mx:TextInput id="urlText" text="rtmp://localhost/myapp" toolTip="URL to connect" enabled="{nc == null}"/>
+		<mx:Button label="Connect" click="connect(urlText.text)" enabled="{nc == null}"/>
+		<mx:Button label="Close" click="close()" enabled="{nc != null}"/>
+	</mx:HBox>
+	
+	<mx:HBox>
+		<mx:Label text="NetStream"/>
+		<mx:TextInput id="streamText" text="user1" toolTip="Stream name to publish or play" enabled="{nc != null}"/>
+		<mx:CheckBox id="recordCheckBox" label="Enable recording" toolTip="Only valid if publishing"/>
+		<mx:Button label="Publish" click="publish(streamText.text, recordCheckBox.selected)" enabled="{nc != null &amp;&amp; ns == null}"/>
+		<mx:Button label="Play" click="play(streamText.text)" enabled="{nc != null &amp;&amp; ns == null}"/>
+		<mx:Button label="Close" click="closeStream()" enabled="{nc != null &amp;&amp; ns != null}"/>
+	</mx:HBox>
+	
+	<mx:HBox id="videoBox">
+		<mx:VideoDisplay id="local" creationComplete="localCreated()" width="160" height="120" backgroundAlpha="0"/>
+	</mx:HBox>
+	
+	<mx:TextArea id="log" width="100%" height="100%"/>
+	
+    <mx:Script>
+        <![CDATA[
+        import mx.core.UIComponent;
+        
+        [Bindable] private var nc:NetConnection;
+        [Bindable] private var ns:NetStream;
+        private var remoteVideo:Video;
+        
+        private function connect(url:String):void {
+        	NetConnection.defaultObjectEncoding = ObjectEncoding.AMF0; // MUST SUPPLY THIS!!!
+        	
+        	if (nc == null) {
+	        	nc = new NetConnection();
+	        	nc.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+	        	nc.addEventListener(IOErrorEvent.IO_ERROR, errorHandler, false, 0, true);
+	        	nc.addEventListener(SecurityErrorEvent.SECURITY_ERROR, errorHandler, false, 0, true);
+	        	nc.addEventListener(AsyncErrorEvent.ASYNC_ERROR, errorHandler, false, 0, true);
+	        	
+	        	debug('connect() ' + url);
+	        	nc.connect(url);
+	        }
+        }
+        
+        private function close():void {
+        	debug('close()');
+        	if (nc != null) {
+        		nc.close();
+        		nc = null;
+        		closeStream();
+        	}
+        }
+        
+        private function publish(name:String, record:Boolean):void {
+        	if (ns == null && nc != null && nc.connected) {
+        		ns = new NetStream(nc);
+        		ns.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+        		ns.addEventListener(IOErrorEvent.IO_ERROR, streamErrorHandler, false, 0, true);
+        		ns.addEventListener(AsyncErrorEvent.ASYNC_ERROR, streamErrorHandler, false, 0, true);
+        		
+        		ns.publish(name, record ? 'record' : null);
+        		local.attachCamera(Camera.getCamera());
+        		ns.attachCamera(Camera.getCamera());
+        		ns.attachAudio(Microphone.getMicrophone(-1));
+        	}
+        }
+        
+        private function play(name:String):void {
+        	if (ns == null && nc != null && nc.connected) {
+        		ns = new NetStream(nc);
+        		ns.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+        		ns.addEventListener(IOErrorEvent.IO_ERROR, streamErrorHandler, false, 0, true);
+        		ns.addEventListener(AsyncErrorEvent.ASYNC_ERROR, streamErrorHandler, false, 0, true);
+        		ns.play(name);
+        		
+        		remoteVideo.attachNetStream(ns);
+        	}
+        }
+        
+        private function closeStream():void {
+        	if (ns != null) {
+        		ns.close();
+        		ns = null;
+        	}
+        	remoteVideo.clear();
+        	local.attachCamera(null);
+        }
+        
+        private function netStatusHandler(event:NetStatusEvent):void {
+        	debug('netStatusHandler() ' + event.type + ' ' + event.info.code);
+        	switch (event.info.code) {
+        	case 'NetConnection.Connect.Success':
+        		break;
+        	case 'NetConnection.Connect.Failed':
+        	case 'NetConnection.Connect.Reject':
+        	case 'NetConnection.Connect.Closed':
+        		nc = null;
+        		closeStream();
+        		break;
+        	}
+        }
+        
+        private function errorHandler(event:ErrorEvent):void {
+        	debug('errorHandler() ' + event.type + ' ' + event.text);
+        	if (nc != null)
+        		nc.close();
+        	nc = null;
+        	closeStream();
+        }
+        
+        private function streamErrorHandler(event:ErrorEvent):void {
+        	debug('streamErrorHandler() ' + event.type + ' ' + event.text);
+        	closeStream();
+        }
+        
+        private function debug(msg:String):void {
+        	if (log != null)
+	        	log.text += msg + '\n';
+        }
+        
+        private function localCreated():void {
+        	var ui:UIComponent = new UIComponent();
+        	remoteVideo = new Video(160, 120);
+        	ui.width = 160;
+        	ui.height = 120;
+        	remoteVideo.width = 160;
+        	remoteVideo.height = 120;
+        	ui.addChild(remoteVideo);
+        	this.videoBox.addChild(ui);
+        }
+        ]]>
+    </mx:Script>
+</mx:Application>
