@@ -690,7 +690,7 @@ class FlashServer(object):
         self.root = '';
         
     def start(self, host='0.0.0.0', port=1935):
-        '''This is should be used to start listening for RTMP connections on the given port, which defaults to 1935.'''
+        '''This should be used to start listening for RTMP connections on the given port, which defaults to 1935.'''
         if not self.server:
             sock = self.sock = socket.socket(type=socket.SOCK_STREAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
