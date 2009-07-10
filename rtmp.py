@@ -19,7 +19,7 @@ $ python rtmp.py -h
 
 To start the server with a different directory for recording and playing FLV files from, use the following command.
 $ python rtmp.py -r some-other-directory/
-Note the terminate '/' in the directory name. Without this, it is just used as a prefix in FLV file names.
+Note the terminal '/' in the directory name. Without this, it is just used as a prefix in FLV file names.
 
 A test client is available in testClient directory, and can be compiled using Flex Builder. Alternatively, you can use the SWF file to launch
 from testClient/bin-debug after starting the server. Once you have launched the client in the browser, you can connect to
@@ -345,7 +345,7 @@ class Command:
     ''' Class for command / data messages'''
     def __init__(self, type=Message.RPC, name=None, id=None, cmdData=None, args=[]):
         '''Create a new command with given type, name, id, cmdData and args list.'''
-        self.type, self.name, self.id, self.cmdData, self.args = type, name, id, cmdData, args
+        self.type, self.name, self.id, self.cmdData, self.args = type, name, id, cmdData, args[:]
         
     def __repr__(self):
         return ("<Command type=%r name=%r id=%r data=%r args=%r>" % (self.type, self.name, self.id, self.cmdData, self.args))
@@ -500,7 +500,7 @@ class Stream:
         self.client, self.id, self.name = client, 0, ''
         self.recordfile = self.playfile = None # so that it doesn't complain about missing attribute
         self.queue = multitask.Queue()
-        self._name = 'Stream[' + str(++Stream.count) + ']'
+        self._name = 'Stream[' + str(Stream.count) + ']'; Stream.count += 1
         if _debug: print self, 'created'
         
     def close(self):
@@ -576,7 +576,9 @@ class Client(Protocol):
             assert msg.streamId != 0
             assert msg.streamId in self.streams
             # if _debug: print self.streams[msg.streamId], 'recv'
-            yield self.streams[msg.streamId].queue.put(msg) # give it to stream
+            stream = self.streams[msg.streamId]
+            if not stream.client: stream.client = self 
+            yield stream.queue.put(msg) # give it to stream
 
     def accept(self):
         '''Method to accept an incoming client.'''
@@ -638,7 +640,8 @@ class Server:
                 if _debug: print 'connection received from', remote
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # make it non-block
                 client = Client(sock, self)
-        except: print 'rtmp.Server exception ', (sys and sys.exc_info() or None)
+        except: 
+            if _debug: print 'rtmp.Server exception ', (sys and sys.exc_info() or None)
         
         if (self.sock):
             try: self.sock.close(); self.sock = None
@@ -651,7 +654,7 @@ class App(object):
     '''An application instance containing any number of streams. Except for constructor all methods are generators.'''
     count = 0
     def __init__(self):
-        self.name = str(self.__class__.__name__) + '[' + str(++App.count) + ']'
+        self.name = str(self.__class__.__name__) + '[' + str(App.count) + ']'; App.count += 1
         self.players, self.publishers, self._clients = {}, {}, [] # Streams indexed by stream name, and list of clients
         if _debug: print self.name, 'created'
     def __del__(self):
@@ -679,7 +682,11 @@ class App(object):
         if _debug: print self.name, 'onStatus', info
     def onResult(self, client, result):
         if _debug: print self.name, 'onResult', result
-        
+    def onPublishData(self, client, stream, message): # this is invoked every time some media packet is received from published stream. 
+        return True # should return True so that the data is actually published in that stream
+    def onPlayData(self, client, stream, message):
+        return True # should return True so that data will be actually played in that stream
+    
 class FlashServer(object):
     '''A RTMP server to record and stream Flash video.'''
     def __init__(self):
@@ -735,16 +742,17 @@ class FlashServer(object):
                             if _debug: print sys.exc_info()
                             yield client.rejectConnection(reason='Exception on onConnect'); 
                             continue
-                        if result is True:
+                        if result is True or result is None:
                             if client.path not in self.clients: 
                                 self.clients[client.path] = [inst]; inst._clients=self.clients[client.path]
                             self.clients[client.path].append(client)
-                            yield client.accept() 
+                            if result is True:
+                                yield client.accept() # TODO: else how to kill this task when rejectConnection() later
                             multitask.add(self.clientlistener(client)) # receive messages from client.
                         else: 
                             yield client.rejectConnection(reason='Rejected in onConnect')
         except StopIteration: raise
-        except:
+        except: 
             if _debug: print 'serverlistener exception', (sys and sys.exc_info() or None)
             
     def clientlistener(self, client):
@@ -758,6 +766,7 @@ class FlashServer(object):
                 if msg == 'command':          # handle a new command
                     multitask.add(self.clienthandler(client, arg))
                 elif msg == 'stream':         # a new stream is created, handle the stream.
+                    arg.client = client
                     multitask.add(self.streamlistener(arg))
         except StopIteration: raise
         except:
@@ -765,17 +774,20 @@ class FlashServer(object):
             traceback.print_exc()
             
         # client is disconnected, clear our state for application instance.
-        inst = self.clients[client.path][0]
-        self.clients[client.path].remove(client)
+        if _debug: print 'cleaning up client', client.path
+        inst = None
+        if client.path in self.clients:
+            inst = self.clients[client.path][0]
+            self.clients[client.path].remove(client)
         for stream in client.streams.values(): # for all streams of this client
             self.closehandler(stream)
         client.streams.clear() # and clear the collection of streams
-        if len(self.clients[client.path]) == 1: # no more clients left, delete the instance.
+        if client.path in self.clients and len(self.clients[client.path]) == 1: # no more clients left, delete the instance.
             if _debug: print 'removing the application instance'
             inst = self.clients[client.path][0]
             inst._clients = None
             del self.clients[client.path]
-        inst.onDisconnect(client)
+        if inst is not None: inst.onDisconnect(client)
         
     def closehandler(self, stream):
         '''A stream is closed explicitly when a closeStream command is received from given client.'''
@@ -804,7 +816,9 @@ class FlashServer(object):
             else:
                 res, code, args = Command(), '_result', dict()
                 try: result = inst.onCommand(client, cmd.name, *cmd.args)
-                except: code, args = '_error', dict()
+                except:
+                    if _debug: print 'Client.call exception', (sys and sys.exc_info() or None) 
+                    code, args = '_error', dict()
                 res.id, res.name, res.type = cmd.id, code, (client.objectEncoding == 0.0 and Message.RPC or Message.RPC3)
                 res.args, res.cmdData = args, None
                 if _debug: print 'Client.call method=', code, 'args=', args, ' msg=', res.toMessage()
@@ -826,17 +840,22 @@ class FlashServer(object):
             
     def streamhandler(self, stream, message):
         '''A generator to handle a single message on the stream.'''
-        if message.type == Message.RPC:
-            cmd = Command.fromMessage(message)
-            if _debug: print 'streamhandler received cmd=', cmd
-            if cmd.name == 'publish':
-                yield self.publishhandler(stream, cmd)
-            elif cmd.name == 'play':
-                yield self.playhandler(stream, cmd)
-            elif cmd.name == 'closeStream':
-                self.closehandler(stream)
-        else: # audio or video message
-            yield self.mediahandler(stream, message)
+        try:
+            if message.type == Message.RPC:
+                cmd = Command.fromMessage(message)
+                if _debug: print 'streamhandler received cmd=', cmd
+                if cmd.name == 'publish':
+                    yield self.publishhandler(stream, cmd)
+                elif cmd.name == 'play':
+                    yield self.playhandler(stream, cmd)
+                elif cmd.name == 'closeStream':
+                    self.closehandler(stream)
+            else: # audio or video message
+                yield self.mediahandler(stream, message)
+        except GeneratorExit: pass
+        except StopIteration: pass
+        except: 
+            if _debug: print 'exception in streamhandler', (sys and sys.exc_info())
     
     def publishhandler(self, stream, cmd):
         '''A new stream is published. Store the information in the application instance.'''
@@ -880,12 +899,16 @@ class FlashServer(object):
         '''Handle incoming media on the stream, by sending to other stream in this application instance.'''
         if stream.client is not None:
             inst = self.clients[stream.client.path][0]
-            client = stream.client
-            for s in (inst.players.get(stream.name, [])):
-                # if _debug: print 'D', stream.name, s.name
-                yield s.send(message)
-            if stream.recordfile is not None:
-                stream.recordfile.write(message)
+            result = inst.onPublishData(stream.client, stream, message)
+            if result:
+                client = stream.client
+                for s in (inst.players.get(stream.name, [])):
+                    # if _debug: print 'D', stream.name, s.name
+                    result = inst.onPlayData(s.client, s, message)
+                    if result:
+                        yield s.send(message)
+                if stream.recordfile is not None:
+                    stream.recordfile.write(message)
 
 # The main routine to start, run and stop the service
 if __name__ == '__main__':
