@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This component presents status alert messages to the user in the form of soft- Post-It. 
+The concept is similar to built-in Flex Alert component, where PostIt.show(..) static method
+is used to show an alert status message. However, the Post-It message automatically disappears
+after some configurable time. Also if multiple Post-It messages are shown, they animate upwards
+in the parent similar to how some IM based status messages behave. The style and skin of the 
+component looks like a real PostIt. The text in the component is rendered using HTML text.
+The PostIt also has a close button on the lower-bottom corner which allows the user to close
+it before it disappears or when it is sticky.
+-->
+
+<mx:Canvas xmlns:mx="http://www.adobe.com/2006/mxml" styleName="postit" autoLayout="true" 
+	horizontalScrollPolicy="off" verticalScrollPolicy="off" filters="{[new DropShadowFilter(2, 45, 0x000000, 1.0, 2, 2, 1)]}"
+	addedToStage="creationCompleteHandler(event)">
+
+	<mx:Metadata>
+		/**
+		 * Dispatched when the user clicks on any embedded link in the text of this component.
+		 * The text property of the event contains the link information that was clicked.
+		 */
+		[Event(name="link", type="flash.events.TextEvent")]
+	</mx:Metadata>
+	
+	<mx:Script>
+		<![CDATA[
+			import mx.effects.Fade;
+			import mx.effects.Move;
+			import mx.core.Application;
+			
+			//--------------------------------------
+			// CLASS CONSTANTS
+			//--------------------------------------
+			
+			/**
+			 * The margin between this component and it's parent on the left-right sides and bottom.
+			 */
+			private static const MARGIN:uint = 2;
+			
+			/**
+			 * The height of this component.
+			 */
+			private static const HEIGHT:uint = 40;
+			
+			/**
+			 * Number of milliseconds after which the PostIt starts to fade away.
+			 */
+			private static const DISAPPEAR_AFTER:uint = 3000;
+			
+			/**
+			 * Number of milliseconds for which the PostIt fades away, i.e., the fade effect
+			 * runs for this much time.
+			 */
+			private static const DISAPPEAR_TIME:uint  = 500;
+			
+			//--------------------------------------
+			// PUBLIC PROPERTIES
+			//--------------------------------------
+			
+			[Bindable]
+			/**
+			 * The text/HTML message to be displayed in this PostIt. Usually the application will
+			 * just use the show() class method instead of setting this property.
+			 */   
+			public var msg:String;
+			
+			[Bindable]
+			/**
+			 * Whether this PostIt is sticky, i.e., does not disappear automatically. The default
+			 * is false, which means PostIt will disappear automatically after some time. The
+			 * application can supply the sticky property as true in the show() class method when
+			 * creating a PostIt.
+			 */
+			public var sticky:Boolean = false;
+			
+			//--------------------------------------
+			// PRIVATE PROPERTIES
+			//--------------------------------------
+			
+			/**
+			 * The timer is used to signal the disappearing act of this PostIt.
+			 */
+			private var timer:Timer;
+			
+			/**
+			 * The timer is used to signal the removal act of this PostIt after fading is 
+			 * completed.
+			 */
+			private var removeTimer:Timer;
+			
+			//--------------------------------------
+			// CLASS METHODS
+			//--------------------------------------
+			
+			/**
+			 * This is the main method in this class. It allows the application to set a new PostIt
+			 * on the parent container using the given message. It is assumed that the parent is similar
+			 * to a Canvas so that absolute positioning of the created PostIt is valid in the parent.
+			 * 
+			 * @param msg the text/HTML string to display in the PostIt.
+			 * @param parent the parent display container in which this PostIt is installed.
+			 * @param sticky the optional flag which controls whether the PostIt sticks around until
+			 * explicitly closed (true), or whether it disappears automatically after some time (false).
+			 * Default is false. 
+			 * @return an instance of newly created PostIt object.
+			 */
+			public static function show(msg:String, parent:DisplayObjectContainer, sticky:Boolean=false):PostIt
+			{
+				if (parent == null) 
+					parent = Application.application as DisplayObjectContainer;
+				
+				var post:PostIt = new PostIt();
+				post.maxWidth = post.width = parent.width - 2*MARGIN;
+				post.height = HEIGHT - MARGIN;
+				post.x = MARGIN;
+				post.y = parent.height; // initially at the end.
+				post.msg = msg;
+				post.sticky = sticky;
+				post.validateNow(); // so that width/height are set.
+				
+				parent.addChild(post);
+				
+				var p:DisplayObject;
+				for (var i:int=parent.numChildren-1; i>=0; --i) {
+					var c:DisplayObject = parent.getChildAt(i) as PostIt;
+					if (c != null) {
+						var move:Move = new Move(c);
+						move.yBy = (p != null ? -p.height : -c.height) - MARGIN;
+						move.duration = DISAPPEAR_TIME;
+						trace("move by " + move.yBy + " p=" + c.width + "," + c.height);
+						move.play();
+						p = c; // previous child
+					}
+				} 
+				return post;
+			} 
+			
+			//--------------------------------------
+			// PRIVATE METHODS
+			//--------------------------------------
+			
+			/**
+			 * When the PostIt is created, and if it is not sticky, start a timer to disappear this
+			 * PostIt.
+			 */
+			private function creationCompleteHandler(event:Event):void
+			{
+				if (!sticky) {
+					timer = new Timer(DISAPPEAR_AFTER, 1);
+					timer.addEventListener(TimerEvent.TIMER, timerHandler, false, 0, true);
+					timer.start();
+				}
+			}
+			
+			/**
+			 * When the disappear timer expires, play the Fade effect on this PostIt, and also
+			 * start another timer to remove. The durations of both timer and effect are same.
+			 */
+			private function timerHandler(event:TimerEvent):void
+			{
+				timer = null;
+				var fade:Fade = new Fade(this);
+				fade.duration = DISAPPEAR_TIME;
+				fade.alphaTo = 0;
+				fade.play();
+				
+				removeTimer = new Timer(DISAPPEAR_TIME, 1);
+				removeTimer.addEventListener(TimerEvent.TIMER, removeHandler, false, 0, true);
+				removeTimer.start();
+			}
+			
+			/**
+			 * When the remove timer expires, around the same time when the Fade effect
+			 * completes, then remove this PostIt from it's parent.
+			 */
+			private function removeHandler(event:TimerEvent):void
+			{
+				removeTimer = null;
+				if (this.parent != null)
+					this.parent.removeChild(this);
+			}
+			
+			/**
+			 * When the user clicks on the close button, irrespective of whether the PostIt is
+			 * sticky or not, start the Fade effect and remove timer. Also hide the close button
+			 * so that user doesn't click on it again.
+			 */ 
+			private function closeThis(event:Event):void
+			{
+				Button(event.currentTarget).visible=false;
+				timerHandler(null);
+			}
+			
+		]]>
+	</mx:Script>
+	
+	<!--
+	The view contains two parts: the text and the close button.
+	-->
+	
+	<mx:Text htmlText="{msg}" link="dispatchEvent(new TextEvent(TextEvent.LINK, false, false, event.text))"/>
+	
+	<mx:Button label="X" styleName="closebutton" width="11" height="11" click="closeThis(event)"/>
+		
+</mx:Canvas>

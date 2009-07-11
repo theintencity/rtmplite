@@ -242,7 +242,7 @@ class Protocol:
 
             if hdrtype < Header.SEPARATOR: # only time has changed
                 data = (yield self.stream.read(3))
-                header.time = struct.unpack('!I', '\x00' + data)[0] # TODO: kundan - fixed a bug here, change += to =
+                header.time = struct.unpack('!I', '\x00' + data)[0] 
 
             if hdrtype < Header.TIME: # time, size and type has changed
                 data = (yield self.stream.read(3))

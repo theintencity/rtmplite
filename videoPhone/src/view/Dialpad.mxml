@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This component presents a dial-pad similar to the telephone key-pad. It dispatches the dialpadKey
+event when the user clicks on a key.
+-->
+
+<mx:VBox xmlns:mx="http://www.adobe.com/2006/mxml" autoLayout="true">
+	
+	<mx:Metadata>
+		/**
+		 * Dispatched when the user clicks on a key-pad button. The data property of the event
+		 * contains the key code as String, e.g, "3" or "#".
+		 */
+		[Event(name="dialpadKey",type="flash.events.DataEvent")]
+	</mx:Metadata>
+	
+	<mx:Script>
+		<![CDATA[
+			[Bindable]
+			/**
+			 * List of keys to display as button in this control.
+			 */ 
+			private static var keys:Array = ["1","2","3","4","5","6","7","8","9","*","0","#"];
+		]]>
+	</mx:Script>
+	
+	<!-- 
+	Use the Tile component along with Repeater to lay out the dialpad keys. The total width
+	is fixed and each button width is also fixed. This allows 4x3 layout of the keys.
+	-->
+	 
+	<mx:Tile id="dialpadTile" width="120" verticalGap="2" horizontalGap="2" horizontalAlign="center"
+		horizontalScrollPolicy="off" verticalScrollPolicy="off">
+		<mx:Repeater id="rp" dataProvider="{keys}">
+			<mx:Button label="{rp.currentItem}" styleName="dialpad" width="30" height="20" buttonMode="true"
+				click="dispatchEvent(new DataEvent('dialpadKey', false, false, event.currentTarget.getRepeaterItem()))"/>
+		</mx:Repeater>
+	</mx:Tile>
+</mx:VBox>

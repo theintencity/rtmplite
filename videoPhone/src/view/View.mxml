@@ -1,0 +1,376 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This is the main view part of the software. There are two parts in this view: the control part which
+appears on top, and the video part which takes almost whole of the view.
+-->
+
+<mx:Canvas xmlns:mx="http://www.adobe.com/2006/mxml" xmlns:view="view.*" width="100%" height="100%"
+	horizontalScrollPolicy="off" verticalScrollPolicy="off"
+	currentState="{connector != null ? connector.currentState : 'idle'}">
+	
+	<mx:Script>
+		<![CDATA[
+			import model.Connector;
+			import mx.controls.CheckBox;
+			import mx.events.PropertyChangeEvent;
+			import mx.core.Application;
+			import mx.core.UIComponent;
+			
+			//--------------------------------------
+			// PRIVATE PROPERTIES
+			//--------------------------------------
+			
+			/**
+			 * The internal data model.
+			 */
+			private var _connector:Connector;
+			
+			//--------------------------------------
+			// GETTERS/SETTERS
+			//--------------------------------------
+			
+			[Bindable]
+			/**
+			 * The connector represents the data model for this view, and must be set by the application.
+			 * This property is passed on to other internal view elements as needed.
+			 */
+			public function get connector():Connector
+			{
+				return _connector;
+			}
+			public function set connector(value:Connector):void
+			{
+				var oldValue:Connector = _connector;
+				_connector = value;
+				
+				if (value != oldValue) {
+					if (value)
+						value.addEventListener(PropertyChangeEvent.PROPERTY_CHANGE, propertyChangeHandler, false, 0, true);
+				}
+			}
+			
+			//--------------------------------------
+			// PUBLIC METHODS
+			//--------------------------------------
+			
+			/**
+			 * The method causes the application to toggle the full screen mode. 
+			 * Currently it doesn't use hardware stretch mode using the fullScreenSourceRect property.
+			 */
+			public function fullScreen(event:Event=null):void 
+			{
+				trace("going full screen or returning from full screen");
+				try {
+					//this.stage.fullScreenSourceRect = new Rectangle(0, 0, this.width, this.height);
+				    this.stage.displayState = (this.stage.displayState == StageDisplayState.FULL_SCREEN ? StageDisplayState.NORMAL : StageDisplayState.FULL_SCREEN);
+				}
+				catch (e:Error) {
+				    trace("goFullScreen() error " + e.message + "\n" + e.getStackTrace());
+				}
+			}
+			
+			/**
+			 * The methods changes the view to configure state.
+			 * TODO: implement this.
+			 */
+			public function configure(event:Event=null):void 
+			{
+				trace("do configure");
+			}
+			
+			/**
+			 * The method shows a status message in this view using the PostIt component.
+			 * 
+			 * @param msg The text/HTML string to be displayed in the status message.
+			 */
+			public function postIt(msg:String):void
+			{
+				trace("postIt msg=" + msg);
+				PostIt.show(msg, this);
+			}
+			
+			//--------------------------------------
+			// PRIVATE METHODS
+			//--------------------------------------
+			
+			/**
+			 * When the connector's status property changes, we post-it as a status
+			 * message.
+			 */
+			private function propertyChangeHandler(event:PropertyChangeEvent):void
+			{
+				if (event.property == "status" && event.newValue != null)
+					postIt(event.newValue as String);
+			}
+			
+			/**
+			 * The method allows blinking the supplied UIComponent object. It is self-contained.
+			 * It uses the fullColors and blinkColors styles on the object to determine which
+			 * colors to use during blinking.
+			 */
+			private function blink(object:Object):void
+			{
+				var ui:UIComponent = object as UIComponent;
+				if (ui != null) {
+					var fillColors:Array = ui.getStyle("fillColors") || [0xFFFFFF, 0xCCCCCC];
+					var blinkColors:Array = ui.getStyle("blinkColors") || [0x80FF80, 0x80FF80];
+					
+					var timer:Timer = new Timer(500, 0);
+					
+					var timerHandler:Function = function(event:Event):void {
+						trace('blink timer called');
+						var colors:Array = ui.getStyle("fillColors") || [0xFFFFFF, 0xCCCCCC];
+						colors = (colors[0] == fillColors[0] && colors[1] == fillColors[1]) ? blinkColors : fillColors;
+						trace(" blink colors=" + colors[0]);
+						ui.setStyle("fillColors", colors);
+						//ui.alpha = (ui.alpha > 0 ? 0 : 1.0);
+					};
+					
+					var removed:Function = function(event:Event):void {
+						var ui:UIComponent = event.currentTarget as UIComponent;
+						timer.removeEventListener(TimerEvent.TIMER, timerHandler);
+						ui.removeEventListener(Event.REMOVED_FROM_STAGE, removed);
+					};
+					ui.addEventListener(Event.REMOVED_FROM_STAGE, removed);
+
+					timer.addEventListener(TimerEvent.TIMER, timerHandler);
+					timer.start();
+				}
+			}
+			
+			/**
+			 * The method causes the supplied UIComponent object to automatically hide when the
+			 * user rolls the mouse outside the application, and show when the user rolls back 
+			 * mouse inside the application. This method is self-contained.
+			 */
+			private function autoHide(object:Object):void
+			{
+				var ui:UIComponent = object as UIComponent;
+				if (ui != null) {
+					var showHandler:Function = function(event:Event):void {
+						ui.visible = true;
+						trace('show handler called');
+					};
+					var hideHandler:Function = function(event:Event):void {
+						ui.visible = false;
+					};
+					
+					var parent:EventDispatcher = Application.application as EventDispatcher;
+					
+					parent.addEventListener(MouseEvent.ROLL_OVER, showHandler);
+					parent.addEventListener(MouseEvent.ROLL_OUT, hideHandler);
+					
+					var removed:Function = function(event:Event):void {
+						var ui:UIComponent = event.currentTarget as UIComponent;
+						parent.removeEventListener(MouseEvent.ROLL_OVER, showHandler);
+						parent.removeEventListener(MouseEvent.ROLL_OUT, hideHandler);
+						ui.removeEventListener(Event.REMOVED_FROM_STAGE, removed);
+					};
+					ui.addEventListener(Event.REMOVED_FROM_STAGE, removed);
+				}
+			}
+			
+			/**
+			 * When the user clicks on a dial-pad key, we update the dial's text such that
+			 * if the previous text was not a phone number, a new phone number is started, otherwise
+			 * the new digit is appended to an existing phone number. The phone numbers have a
+			 * prefix of "tel:" whereas regular SIP address use "sip:".
+			 * If the call is already active then the new digits are just sent using connector's
+			 * API method.
+			 */
+			private function dialpadHandler(event:DataEvent):void
+			{
+				trace("dialpad key=" + event.data);
+				if (currentState == Connector.CONNECTED) {
+					if (dial != null) {
+						if (dial.text.substr(0,4) == 'tel:' && connector.isDigit(dial.text.substr(4)))
+							dial.text += event.data;
+						else
+							dial.text = 'tel:' + event.data;
+					}
+				}
+				else if (currentState == Connector.ACTIVE) {
+					if (event.data.length > 0)
+						connector.sendDigit(event.data);
+				}
+			}
+		]]>
+	</mx:Script>
+
+	<!-- The VVideo component is used to display the video part in the background. -->
+	
+    <view:VVideo id="video" width="100%" height="100%" connector="{connector}"/>
+    
+    <!-- 
+    The top-bar has control components, which are displayed based on display state.
+    In the 'idle' state, which is the first state for configuration, the control displays a text
+    input box to edit the gateway URL of the form rtmp://server/sip. There is a next button on the
+    right which takes you to the next 'sipURL' state. The 'sipURL' state allows you to edit your
+    SIP address such as "bob@example.net" or "alice@192.168.1.3". There are previous and next buttons
+    to take you to previou and next display states. Similarly, the next three states, 'authName',
+    'authPass', 'displayName', allow you to change your SIP authentication name, authentication 
+    password and display name. Each of these have previous and next button to navigate back and
+    forth. After that the 'remember' state displays a single check-box which if checked saves 
+    your configuration information in Flash local shared object, so that next time you open this
+    Flash application it can read those configuration information. In this state when you click
+    on the next button, it invokes the connector to register with the gateway your SIP URL. In
+    this 'connecting' state, you may click on the 'X' button to cancel connection in which case
+    you will be taken back to the 'idle' state. If you connection succeeds, the view goes to
+    'connected' state. In the 'connected' state, the view displays a text input box to allow you to
+    type remote party's SIP URL to dial, and two buttons: one 'X' to clear or disconnect, and one
+    '>' to dial out. If you dial out, it goes to the 'outbound' state, with message indicating
+    that it is dialing out, and a button 'X' to cancel the dial out. If you receive an incoming
+    call in 'connected' state, it takes you to the 'inbound' state which displays the message 
+    indicating the inbound call, and two buttons: a 'X' to reject the incoming call, and a '<' 
+    to accept the incoming call. Both '>' and '<' buttons in 'outbound', and 'inbound' states,
+    respectively, are blinked until the state changes. In an 'active' call state, it hides the top
+    control bar except when mouse-over. Additionally, it displays three small buttons on top-right
+    corner. These buttons can be used to as follows: 'O' to change the view state of the video 
+    (local, remote, picture-in-picture), '+' to go full screen or restore, and 'X' to close the call.
+    -->
+    
+    <mx:states>
+    	<mx:State name="idle">
+    		<mx:AddChild>
+    			<view:HBar>
+					<view:TTextInput text="{connector.gatewayURL}" toolTip="{_('Edit your gateway URL,\ne.g., rtmp://localhost/sip')}" 
+						change="connector.gatewayURL=TTextInput(event.currentTarget).text" enter="currentState='sipURL'"
+						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
+    				<view:BButton label="&gt;" toolTip="{_('Next: your SIP URL')}" click="currentState='sipURL'"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="sipURL">
+    		<mx:AddChild>
+    			<view:HBar>
+    				<view:BButton label="&lt;" toolTip="{_('Prev: gateway URL')}" click="currentState='idle'"/>
+    				<view:TTextInput text="sip:" editable="false" width="28"/>
+					<view:TTextInput text="{connector.sipURL}" toolTip="{_('Edit your SIP URL,\ne.g., bob@iptel.org')}" 
+						change="connector.sipURL=TTextInput(event.currentTarget).text" enter="currentState='authName'"
+						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
+    				<view:BButton label="&gt;" toolTip="{_('Next: auth name')}" click="currentState='authName'"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="authName">
+    		<mx:AddChild>
+    			<view:HBar>
+    				<view:BButton label="&lt;" toolTip="{_('Prev: SIP URL')}" click="currentState='sipURL'"/>
+					<view:TTextInput text="{connector.authName}" toolTip="{_('Edit your auth name,\ne.g., bob')}" 
+						change="connector.authName=TTextInput(event.currentTarget).text" enter="currentState='authPass'"
+						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
+    				<view:BButton label="&gt;" toolTip="{_('Next: auth password')}" click="currentState='authPass'"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="authPass">
+    		<mx:AddChild>
+    			<view:HBar>
+    				<view:BButton label="&lt;" toolTip="{_('Prev: auth name')}" click="currentState='authName'"/>
+					<view:TTextInput text="{connector.authPass}" toolTip="{_('Edit your auth password')}" displayAsPassword="true" 
+						change="connector.authPass=TTextInput(event.currentTarget).text" enter="currentState='displayName'"
+						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
+    				<view:BButton label="&gt;" toolTip="{_('Next: display name')}" click="currentState='displayName'"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="displayName">
+    		<mx:AddChild>
+    			<view:HBar>
+    				<view:BButton label="&lt;" toolTip="{_('Prev: auth password')}" click="currentState='authPass'"/>
+					<view:TTextInput text="{connector.displayName}" toolTip="{_('Edit your display name,\ne.g., Bob Smith')}" 
+						change="connector.displayName=TTextInput(event.currentTarget).text" enter="currentState='remember'"
+						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
+    				<view:BButton label="&gt;" toolTip="{_('Next: remember')}" click="currentState='remember'"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="remember">
+    		<mx:AddChild>
+    			<view:HBar>
+    				<view:BButton label="&lt;" toolTip="{_('Prev: auth pass')}" click="currentState='authPass'"/>
+					<mx:CheckBox label="{_('Remember me?')}" toolTip="{_('Save your credentials on this PC?')}" width="100%" labelPlacement="left" 
+						selected="{connector.remember}" change="connector.remember=CheckBox(event.currentTarget).selected; connector.save();"/>
+    				<view:BButton label="&gt;" toolTip="{_('Next: connect')}" click="connector.save(); connector.connect()"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="connecting">
+    		<mx:AddChild>
+    			<view:HBar>
+					<view:TTextInput text="{_('connecting...')}" editable="false"/>
+    				<view:BButton label="X" toolTip="{_('Cancel')}" click="connector.disconnect()"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="connected">
+    		<mx:AddChild>
+    			<view:HBar>
+					<view:TTextInput id="dial" text="{connector.targetURL}" toolTip="{_('Type a SIP URL to dial out,\ne.g., sip:alice@iptel.org')}" 
+						enter="if (dial.text != '') connector.invite(dial.text)"
+						keyDown="if (event.keyCode == 38) connector.historyPrev(); else if (event.keyCode == 40) connector.historyNext();"
+						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
+    				<view:BButton label="&gt;" toolTip="{_('Call out')}" enabled="{dial.text != ''}" 
+    					click="connector.invite(dial.text)"/>
+    				<view:BButton label="X" toolTip="{dial.text != '' ? _('Clear') : _('Disconnect')}" 
+    					click="if (dial.text == '') connector.disconnect(); else dial.text = '';"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="outbound">
+    		<mx:AddChild>
+    			<view:HBar>
+					<view:TTextInput text="{connector.targetURL}" editable="false" toolTip="{_('Calling out to\n{0}', connector.targetURL)}"/>
+    				<view:BButton label="&gt;" enabled="false" addedToStage="blink(event.currentTarget)"/>
+    				<view:BButton label="X" toolTip="{_('Cancel call')}" click="connector.bye()"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="inbound">
+    		<mx:AddChild>
+    			<view:HBar>
+					<view:TTextInput text="{connector.targetURL}" editable="false" toolTip="{_('Incoming call from\n{0}', connector.targetURL)}"/>
+    				<view:BButton label="&lt;" toolTip="{_('Accept call')}" click="connector.accept()" addedToStage="blink(event.currentTarget)"/>
+    				<view:BButton label="X" toolTip="{_('Reject call')}" click="connector.reject('Declined')"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    	
+    	<mx:State name="active">
+    		<mx:AddChild>
+    			<view:HBar addedToStage="autoHide(event.currentTarget)">
+					<mx:Spacer width="100%"/>
+    				<view:BButton label="O" toolTip="{_('Toggle local and remote video')}" alpha="0.5" click="video.next()"/>
+    				<view:BButton label="+" toolTip="{_('Toggle full Screen')}" alpha="0.5" click="fullScreen()"/>
+    				<view:BButton label="X" toolTip="{_('Terminate call')}" alpha="0.5" click="connector.bye()"/>
+    			</view:HBar>
+    		</mx:AddChild>
+    	</mx:State>
+    </mx:states>
+
+	<!--
+	There is a hidden 10x10 button on bottom-left corner of the View, which allows showing and
+	hiding the dial-pad.
+	-->
+    <mx:Canvas bottom="0" left="0" width="10" height="10" click="adv.visible = !adv.visible"/>
+    
+    <!--
+    The dialpad is shown based on the hidden button click as mentioned above.
+    -->
+    <mx:Canvas id="adv" visible="false" horizontalCenter="0" verticalCenter="0" autoLayout="true"
+    	show="if (dial != null &amp;&amp; dial.text.substr(0,4) != 'tel:') dial.text = 'tel:'">
+    	<view:Dialpad dialpadKey="dialpadHandler(event)"/>
+    </mx:Canvas>
+    
+</mx:Canvas>

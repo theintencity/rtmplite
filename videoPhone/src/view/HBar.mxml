@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This component extends built-in Flex HBox component so as to stretch both width and height to
+100% of the parent, disable scrolling, and use style name of 'hbar'.
+-->
+
+<mx:HBox xmlns:mx="http://www.adobe.com/2006/mxml" styleName="hbar"
+	width="100%" height="100%" horizontalScrollPolicy="off" verticalScrollPolicy="off"/>

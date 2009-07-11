@@ -1,0 +1,154 @@
+<html lang="en">
+
+<!-- 
+This is the main demo page for Video Phone.
+// -->
+
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+<title>SIP-RTMP gateway: Flash-to-SIP calls</title>
+<script src="AC_OETags.js" language="javascript"></script>
+
+<style>
+body { margin: 10px; overflow:hidden }
+</style>
+<script language="JavaScript" type="text/javascript">
+<!--
+// -----------------------------------------------------------------------------
+// Globals
+// Major version of Flash required
+var requiredMajorVersion = 10;
+// Minor version of Flash required
+var requiredMinorVersion = 0;
+// Minor version of Flash required
+var requiredRevision = 22;
+// -----------------------------------------------------------------------------
+// -->
+</script>
+</head>
+
+<body scroll="no">
+<h1>SIP-RTMP gateway demonstration</h1>
+
+<p style="font-size: 12px">
+This page allows you to demonstrate Flash to SIP calls and vice-versa using the
+SIP-RTMP gateway software. With appropriate SIP based VoIP account, you can also 
+accomplish Flash-to-phone or web-to-phone calls. Please visit the open source SIP-RTMP
+gateway project page at
+<a href="http://code.google.com/p/siprtmp/">http://code.google.com/p/siprtmp/</a>
+for details on this project such as demo instructions, support and contributions.</p>
+
+<center>
+<script language="JavaScript" type="text/javascript">
+<!--
+var flashVars=document.location.search;
+	
+// remove the '?' sign if exists
+if (flashVars[0]=='?') {
+	flashVars=flashVars.substr(2, flashVars.length-1);
+}
+else {
+	// you can supply certain parameters from flashVars as follows
+	// flashVars+="&sipURL=myuser@iptel.org&authName=myuser&authPass=mypass&gatewayURL=rtmp://localhost/sip&signupURL=http://serweb.iptel.org/user/reg/index.php";
+}
+
+// Version check for the Flash Player that has the ability to start Player Product Install (6.0r65)
+var hasProductInstall = DetectFlashVer(6, 0, 65);
+
+// Version check based upon the values defined in globals
+var hasRequestedVersion = DetectFlashVer(requiredMajorVersion, requiredMinorVersion, requiredRevision);
+
+if ( hasProductInstall && !hasRequestedVersion ) {
+	// DO NOT MODIFY THE FOLLOWING FOUR LINES
+	// Location visited after installation is complete if installation is required
+	var MMPlayerType = (isIE == true) ? "ActiveX" : "PlugIn";
+	var MMredirectURL = window.location;
+    document.title = document.title.slice(0, 47) + " - Flash Player Installation";
+    var MMdoctitle = document.title;
+
+	AC_FL_RunContent(
+		"src", "playerProductInstall",
+		"FlashVars", "MMredirectURL="+MMredirectURL+'&MMplayerType='+MMPlayerType+'&MMdoctitle='+MMdoctitle+"",
+		"width", "214",
+		"height", "137",
+		"align", "middle",
+		"id", "VideoPhone",
+		"quality", "high",
+		"bgcolor", "#869ca7",
+		"name", "VideoPhone",
+		"allowScriptAccess","sameDomain",
+		"type", "application/x-shockwave-flash",
+		"pluginspage", "http://www.adobe.com/go/getflashplayer"
+	);
+} else if (hasRequestedVersion) {
+	// if we've detected an acceptable version
+	// embed the Flash Content SWF when all tests are passed
+	AC_FL_RunContent(
+			"src", "VideoPhone",
+			"width", "214",
+			"height", "137",
+			"align", "middle",
+			"id", "VideoPhone",
+			"quality", "high",
+			"bgcolor", "#869ca7",
+			"name", "VideoPhone",
+			"allowScriptAccess","sameDomain",
+			"allowFullScreen", "true",
+			"flashVars", flashVars,
+			"type", "application/x-shockwave-flash",
+			"pluginspage", "http://www.adobe.com/go/getflashplayer"
+	);
+  } else {  // flash is too old or we can't detect the plugin
+    var alternateContent = 'Alternate HTML content should be placed here. '
+  	+ 'This content requires the Adobe Flash Player. '
+   	+ '<a href=http://www.adobe.com/go/getflash/>Get Flash</a>';
+    document.write(alternateContent);  // insert non-flash content
+  }
+// -->
+</script>
+<noscript>
+  	<object classid="clsid:D27CDB6E-AE6D-11cf-96B8-444553540000"
+			id="VideoPhone" width="214" height="137"
+			codebase="http://fpdownload.macromedia.com/get/flashplayer/current/swflash.cab">
+			<param name="movie" value="VideoPhone.swf" />
+			<param name="quality" value="high" />
+			<param name="bgcolor" value="#869ca7" />
+			<param name="allowScriptAccess" value="sameDomain" />
+			<param name="allowFullScreen" value="true" />
+			<embed src="VideoPhone.swf" quality="high" bgcolor="#869ca7"
+				width="214" height="137" name="VideoPhone" align="middle"
+				play="true"
+				loop="false"
+				quality="high"
+				allowScriptAccess="sameDomain"
+				allowFullScreen="true"
+				type="application/x-shockwave-flash"
+				pluginspage="http://www.adobe.com/go/getflashplayer">
+			</embed>
+	</object>
+</noscript>
+</center>
+
+<p style="font-size: 12px">
+Please use the following HTML embed code to include this Flash application on your
+web site.</p>
+<pre style="font-size: 10px">
+&lt;object classid="clsid:D27CDB6E-AE6D-11cf-96B8-444553540000"
+    id="VideoPhone" width="214" height="137"
+    codebase="http://fpdownload.macromedia.com/get/flashplayer/current/swflash.cab"&gt;
+  &lt;param name="movie" value="VideoPhone.swf" /&gt;
+  &lt;param name="quality" value="high" /&gt;
+  &lt;param name="bgcolor" value="#869ca7" /&gt;
+  &lt;param name="allowScriptAccess" value="sameDomain" /&gt;
+  &lt;param name="allowFullScreen" value="true" /&gt;
+  &lt;embed src="VideoPhone.swf" quality="high" bgcolor="#869ca7"
+    width="214" height="137" name="VideoPhone" align="middle"
+    play="true" loop="false" quality="high" allowScriptAccess="sameDomain"
+    allowFullScreen="true" type="application/x-shockwave-flash" 
+    pluginspage="http://www.adobe.com/go/getflashplayer"&gt;
+    &lt;/embed&gt;
+&lt;/object&gt;
+</pre>
+</body>
+</html>

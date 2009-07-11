@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This component displays the video part of the overall View. This has four states: in the idle
+state it does not display any video but just some help message, in the local state it displays
+only the local video using VideoPublish component, in the remote state it displays only the
+remote video using the VideoPlay component, in the both state it displays both local and remote
+videos, such that VideoPublish is picture-in-picture inside VideoPlay view.
+-->
+
+<mx:Canvas xmlns:mx="http://www.adobe.com/2006/mxml" currentState="{IDLE}" xmlns:view="view.*">
+	
+	<mx:Script>
+		<![CDATA[
+			import model.Connector;
+			import mx.core.UIComponent;
+			import mx.events.PropertyChangeEvent;
+			
+			//--------------------------------------
+			// CLASS CONSTANTS
+			//--------------------------------------
+			
+			/**
+			 * Various states for this view.
+			 */
+			public static const IDLE:String   = "idle";
+			public static const LOCAL:String  = "local";
+			public static const REMOTE:String = "remote";
+			public static const BOTH:String   = "both";
+			
+			//--------------------------------------
+			// PRIVATE PROPERTIES
+			//--------------------------------------
+			
+			/**
+			 * Internal connector as the data model.
+			 */
+			private var _connector:Connector;
+			
+			//--------------------------------------
+			// GETTERS/SETTERS
+			//--------------------------------------
+			
+			[Bindable]
+			/**
+			 * The connector property represents the data model for this view. This view
+			 * listens for change in the currentState property of the connector, and accordingly
+			 * adjusts its own state.
+			 */
+			public function get connector():Connector
+			{
+				return _connector;
+			}
+			public function set connector(value:Connector):void
+			{
+				var oldValue:Connector = _connector;
+				_connector = value;
+				
+				if (value != oldValue) {
+					if (value)
+						value.addEventListener(PropertyChangeEvent.PROPERTY_CHANGE, propertyChangeHandler, false, 0, true);
+				}
+			}
+			
+			/**
+			 * Override the currentState setter to print the state change.
+			 */
+			override public function set currentState(value:String):void
+			{
+				var oldValue:String = super.currentState;
+				trace("changing state old=" + oldValue + " new=" + value);
+				super.currentState = value;
+			}
+			
+			//--------------------------------------
+			// PUBLIC METHODS
+			//--------------------------------------
+			
+			/**
+			 * The method allows the application (View) to switch between various states of this
+			 * component. In particular it cycles through remote, both, local, when next() is
+			 * called repeatedly.
+			 */ 
+			public function next():void
+			{
+				if (currentState == LOCAL)
+					currentState = REMOTE;
+				else if (currentState == REMOTE)
+					currentState = BOTH;
+				else if (currentState == BOTH)
+					currentState = LOCAL;
+			}
+			
+			//--------------------------------------
+			// PRIVATE METHODS
+			//--------------------------------------
+			
+			/**
+			 * When the currentState of the connector changes, we adjust our own view state.
+			 * In particular, when the connector is in active call, we display "remote" view,
+			 * when the connector is not in a call, we display "local" view, and when the
+			 * connector is not even connected to the server, we display "idle" view. Additionally,
+			 * the user can flip through various view states using the next() method.
+			 */
+			private function propertyChangeHandler(event:PropertyChangeEvent):void
+			{
+				if (event.property == "currentState") {
+					switch (event.newValue) {
+						case "active": 
+							this.currentState = REMOTE;
+							startPublish();
+							break;
+						case "connected":
+						case "outbound":
+						case "inbound": 
+							this.currentState = LOCAL;
+							break;
+						default: 
+							this.currentState = IDLE;
+							stopPublish();
+							break;
+					}
+				}
+			}
+			
+			/**
+			 * When the connector is in active call, we need to start publishing our own audio
+			 * and video on the connector's published NetStream. We use the default Camera and
+			 * Microphone objects. The Microphone object's codec, framesPerPacket and encodeQuality
+			 * properties are set to be consistent with Speex/16000 audio codec available in 
+			 * Flash Player 10.
+			 */ 
+			private function startPublish():void
+			{				
+				if (connector != null && connector.publishStream != null) {
+					var mic:Microphone = Microphone.getMicrophone(0);
+					mic['codec'] = "Speex";
+					mic['framesPerPacket'] = 1;
+					mic['encodeQuality'] = 6;
+					connector.publishStream.attachAudio(mic);
+					connector.publishStream.attachCamera(Camera.getCamera());
+				}
+			}
+			
+			/**
+			 * When the call is terminated in the connector, we need to stop publishing our
+			 * audio and video on the connector's published NetStream, if any.
+			 */
+			private function stopPublish():void
+			{
+				if (connector != null && connector.publishStream != null) {
+					connector.publishStream.attachAudio(null);
+					connector.publishStream.attachCamera(null);
+				}
+			}
+			
+		]]>
+	</mx:Script>
+	
+	<!--
+	The view states are described before. 
+	-->
+	
+	<mx:states>
+		<mx:State name="idle">
+			<!-- The idle state just displays a help message. -->
+			<mx:AddChild>
+				<mx:Text width="100%" height="100%" top="20"
+					text="{_('Use the box above to configure your gateway URL and SIP account first. Once logged in you can make or receive SIP calls. Use right-click menu to go full-screen.')}"/>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="local">
+			<!-- The local state displays the local video using VideoPublish component. -->
+			<mx:AddChild>
+				<view:VideoPublish/>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="remote">
+			<!-- The remote state displays the remote video using VideoPlay component. -->
+			<mx:AddChild>
+				<view:VideoPlay connector="{connector}"/>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="both">
+			<!-- 
+			The both state displays picture-in-picture of local video inside remote video view.
+			It also allows dragging the inside view.
+			-->
+			<mx:AddChild>
+				<view:VideoPlay connector="{connector}"/>
+			</mx:AddChild>
+			<mx:AddChild>
+				<view:VideoPublish width="33%" height="33%"
+					addedToStage="UIComponent(event.currentTarget).move(4, this.height*2/3-7)"
+					mouseDown="UIComponent(event.currentTarget).startDrag()" mouseUp="UIComponent(event.currentTarget).stopDrag()"/>
+			</mx:AddChild>
+		</mx:State>
+		
+	</mx:states>
+</mx:Canvas>

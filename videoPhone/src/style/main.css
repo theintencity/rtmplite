@@ -1,0 +1,64 @@
+/* CSS file */
+
+Application {
+	theme-color: "white";
+}
+
+ToolTip {
+	corner-radius: 0;
+	color: #000000;
+	background-color: #CFCFCF;
+	background-alpha: 0.8;
+}
+
+.hbar {
+	vertical-gap: 0;
+	horizontal-gap: 0;
+}
+
+.ttextinput {
+}
+
+.bbutton {
+	corner-radius: 0;
+	padding-left: 0;
+	padding-right: 0;
+	padding-top: 0;
+	padding-bottom: 0;
+	color: #000000;
+	roll-over-color: #000000;
+	fill-alphas: 1.0, 1.0;
+	fill-colors: #FFFFFF, #CCCCCC;
+	blink-colors: #80FF80, #80FF80;
+}
+
+.postit {
+	background-color: #FFFF80;
+	background-alpha: 0.7;
+}
+
+.closebutton {
+	corner-radius: 5;
+	fill-colors: #808080,#808080;
+	color: #ffffff;
+	text-roll-over-color: #ffffff;
+	font-size: 6;
+	bottom: 2;
+	right: 2;
+	paddingLeft: 0;
+	paddingRight: 0;
+	paddingTop: 0;
+	paddingBottom: 0; 
+}
+
+.dialpad {
+	corner-radius: 0;
+	padding-left: 0;
+	padding-right: 0;
+	padding-top: 0;
+	padding-bottom: 0;
+	fill-alphas: 0.5, 0.5;
+	fill-colors: #8080FF, #CFCFFF;
+	color: #000000;
+	roll-over-color: #008000;
+}

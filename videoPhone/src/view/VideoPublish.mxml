@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This component is used to display the local user's video. When this component is added to the stage
+it allocates a new child Video object and attaches it to the default Camera object. The view also
+resizes the video whenever the view resizes. If local video is not available, it displays a black
+background. The video is flipped horizontally, so that the video appears as a mirror to the user.
+The smoothing and deblocking properties are set so that the video renders smoothly. There is some
+common code between this component and VideoPlay component, which needs to be refactored.
+-->
+
+<mx:UIComponent xmlns:mx="http://www.adobe.com/2006/mxml" width="100%" height="100%" 
+	addedToStage="addedHandler(event)" removedFromStage="removedHandler(event)" resize="resizeHandler(event)">
+	
+	<mx:Script>
+		<![CDATA[
+			import model.Connector;
+			import mx.events.ResizeEvent;
+	
+			//--------------------------------------
+			// CLASS CONSTANTS
+			//--------------------------------------
+			
+			/**
+			 * The default aspect ratio of width to height.
+			 */
+			private static const RATIO:Number = 4/3;
+			
+			/**
+			 * The default width for capture from camera.
+			 */
+			private static const WIDTH:Number = 320;
+			
+			/**
+			 * The default height for capture from camera.
+			 */
+			private static const HEIGHT:Number = 240;
+
+			//--------------------------------------
+			// PRIVATE PROPERTIES
+			//--------------------------------------
+			
+			/**
+			 * The child Video object to display the local video from camera.
+			 */
+			private var video:Video;
+						
+			//--------------------------------------
+			// PRIVATE METHODS
+			//--------------------------------------
+			
+			/**
+			 * When this component is added to the stage, it creates a child Video object and attaches
+			 * it to the default Camera object. 
+			 */
+			private function addedHandler(event:Event):void	
+			{
+				if (video == null) {
+					video = new Video(WIDTH, HEIGHT);
+					video.smoothing = true;
+					video.deblocking = 2;
+					var cam:Camera = Camera.getCamera();
+					cam.setMode(WIDTH, HEIGHT, 12);
+					video.attachCamera(cam);
+					resizeHandler(null); // set initial size
+					addChild(video);
+				}
+			}
+			
+			/**
+			 * When this component is removed from the stage, it removes the child Video
+			 * object and detaches any camera from it.
+			 */
+			private function removedHandler(event:Event):void	
+			{
+				if (video != null) {
+					video.attachCamera(null);
+					removeChild(video);
+					video = null;
+				}
+			}
+			
+			/**
+			 * When this component is resized, also resize the child Video object if present, 
+			 * such that it clips on the side based on our aspect ratio, and positions itself in
+			 * the center of us. It also flips the video horizontally to look like a mirror view.
+			 */
+			private function resizeHandler(event:ResizeEvent):void
+			{
+				if (video != null) {
+					var m:Matrix = new Matrix();
+					var parent:DisplayObject = this;
+					var weird_ratio:Number = 1; //3/4; // for some reason new SDK works different. Set to 1 in old.
+					m.scale(-Math.max(parent.width, RATIO*parent.height)/WIDTH, Math.max(parent.height, (1/RATIO)*parent.width)*(weird_ratio)/HEIGHT);
+					m.translate(Math.max(parent.width, RATIO*parent.height)-(Math.max(parent.width, RATIO*parent.height)-parent.width)/2, -(Math.max(parent.height, (1/RATIO)*parent.width)*(weird_ratio)-parent.height)/2);
+					trace("video transform " + m.a + "," + m.b + "," + m.c + "," + m.d + "," + m.tx + "," + m.ty);
+					video.transform.matrix = m; 
+				}
+			}
+			
+			/**
+			 * Override the display routine to draw the black background. The video is laid out 
+			 * on top of the background.
+			 */
+			override protected function updateDisplayList(w:Number, h:Number):void
+			{
+				super.updateDisplayList(w, h);
+				
+				var g:Graphics = this.graphics;
+				g.beginFill(0x000000, 1.0);
+				g.drawRect(0, 0, w, h);
+				g.endFill();
+			}
+			
+		]]>
+	</mx:Script>
+</mx:UIComponent>

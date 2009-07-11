@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This component is used to display the remote user's video. It uses the connector as the model,
+and when this component is added to the stage, it creates a new Video object and attaches it 
+to the remote NetStream which is being played in the connector. This view also resizes the video
+whenever the view resizes. If remote person's video is not available in the NetStream it 
+displays the vertical rainbow bars similar to how certain TV display no-signal state. The smooting
+property on the Video object is set to enable smooth video rendering.
+-->
+
+<mx:UIComponent xmlns:mx="http://www.adobe.com/2006/mxml" width="100%" height="100%"
+	addedToStage="addedHandler(event)" removedFromStage="removedHandler(event)" resize="resizeHandler(event)">
+	
+	<mx:Script>
+		<![CDATA[
+			import model.Connector;
+			import mx.events.ResizeEvent;
+	
+			//--------------------------------------
+			// PUBLIC PROPERTIES
+			//--------------------------------------
+			
+			[Bindable]
+			/**
+			 * The connector model supplies the playing NetStream which gets attached to
+			 * our Video object to display remote person's video.
+			 */
+			public var connector:Connector;
+			
+			//--------------------------------------
+			// PRIVATE PROPERTIES
+			//--------------------------------------
+			
+			/**
+			 * The video object that is used to display the video.
+			 */
+			private var video:Video;
+			
+			/**
+			 * The ratio of the expected video stream.
+			 */
+			private var ratio:Number = 4/3;
+			
+			//--------------------------------------
+			// PRIVATE METHODS
+			//--------------------------------------
+			
+			/**
+			 * When this component is added to stage, it creates a new Video object as a child,
+			 * and attaches the NetStream of the connector if present.
+			 */
+			private function addedHandler(event:Event):void	
+			{
+				if (video == null) {
+					video = new Video(320, 240);
+					video.smoothing = true;
+					resizeHandler(null);
+					addChild(video);
+				}
+				
+				if (connector != null) {
+					video.attachNetStream(connector.playStream);
+				}
+			}
+			
+			/**
+			 * When this component is removed from stage, remove the child Video object and detach
+			 * NetStream if any from it.
+			 */ 
+			private function removedHandler(event:Event):void	
+			{
+				if (connector != null) {
+					if (video != null)
+						video.attachNetStream(null);
+				}
+				if (video != null) {
+					video.attachNetStream(null);
+					removeChild(video);
+					video = null;
+				}
+			}
+			
+			/**
+			 * When this component is resized, also resize the child Video object if present, 
+			 * such that it clips on the side based on our aspect ratio, and positions itself in
+			 * the center of us.
+			 */
+			private function resizeHandler(event:ResizeEvent):void
+			{
+				if (video != null) {
+					var m:Matrix = new Matrix();
+					var parent:DisplayObject = this;
+					var weird_ratio:Number = 3/4; // for some reason new SDK works different. Set to 1 in old.
+					m.scale(Math.max(parent.width, ratio*parent.height)/320, Math.max(parent.height, (1/ratio)*parent.width)*(weird_ratio)/240);
+					m.translate(-(Math.max(parent.width, ratio*parent.height)-parent.width)/2, -(Math.max(parent.height, (1/ratio)*parent.width)*(weird_ratio)-parent.height)/2);
+					trace("video transform " + m.a + "," + m.b + "," + m.c + "," + m.d + "," + m.tx + "," + m.ty);
+					video.transform.matrix = m; 
+				}
+			}
+			
+			/**
+			 * Override the display routine to draw the vertical rainbow bars in the background.
+			 * The Video is laid out on top of the background.
+			 */
+			override protected function updateDisplayList(w:Number, h:Number):void
+			{
+				super.updateDisplayList(w, h);
+				
+				// draw vertical rainbow bars
+				var g:Graphics = this.graphics;
+				var colors:Array = [0xFF0000, 0x00FF00, 0x0000FF];
+				var columns:int = 10;
+				for (var i:int=0; i<columns; ++i) {
+					g.beginFill(colors[i % colors.length], 1.0);
+					g.drawRect(w*i/columns, 0, w*(i+1)/columns-1, h);
+					g.endFill();
+				}
+			}
+			
+		]]>
+	</mx:Script>
+</mx:UIComponent>

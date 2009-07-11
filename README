@@ -2,6 +2,12 @@ The main program is rtmp.py. Please see the embedded documentation in that file.
 Some parts of the documentation are copied here. Other modules such as amf, util
 and multitask are used from elsewhere and contain their respective copyright 
 notices.
+--
+The siprtmp module implements a SIP-RTMP gateway.  Please see the google 
+code project for details on demo instructions and support information.
+The project description is contained in siprtmp.py file itself. The command
+line of siprtmp is same as rtmp, hence just replce rtmp by siprtmp in the 
+following example to start the gateway.
 
 -- 
 Dependencies: Python 2.5
@@ -28,7 +34,6 @@ close the publishing stream and play the recorded stream to
 see your recording. Note that due to initial delay in timestamp 
 (in case publish was clicked much later than connect),
 your played video will start appearing after some initial delay.
-
 
 ---------------------- LICENSING -----------------------------------
 

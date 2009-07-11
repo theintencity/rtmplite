@@ -2,6 +2,7 @@ rtmplite/README
 rtmplite/rtmp.py
 rtmplite/amf.py
 rtmplite/multitask.py
+rtmplite/siprtmp.py
 rtmplite/testClient/bin-debug/AC_OETags.js
 rtmplite/testClient/bin-debug/history/history.css
 rtmplite/testClient/bin-debug/history/history.js
@@ -10,4 +11,3 @@ rtmplite/testClient/bin-debug/playerProductInstall.swf
 rtmplite/testClient/bin-debug/testClient.html
 rtmplite/testClient/bin-debug/testClient.swf
 rtmplite/testClient/src/testClient.mxml
-

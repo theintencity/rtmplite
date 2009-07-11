@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (c) 2009, Mamta Singh. See README for details. -->
+
+<!--
+This software demonstrate Flash to SIP calls and vice-versa using the SIP-RTMP gateway 
+software. With appropriate SIP based VoIP account, you can also accomplish Flash-to-phone 
+or web-to-phone calls. Please visit the open source SIP-RTMP gateway project page at 
+http://code.google.com/p/siprtmp/ for details on this project such as demo instructions, 
+support and contributions.
+
+This comment describes the design of the client software. At the high level, the software
+has two parts: view and model. The model also encompasses the controller. The main file
+named VideoPhone.mxml instantiates the model Connector.as as well as includes the view
+View.mxml. The layout, color and skin can be controlled using the CSS file main.css.
+
+The view contains various elements such as buttons, dialpad, horizontal bar, status message
+local and remote video views and picture-in-picture view. Please refer to those individual
+files for documentation on those components.
+
+The model contains a Connector, which provides a connection to the backend SIP-RTMP 
+gateway. The connector allows invoking methods such as inviting a SIP user or accepting
+an incoming call. Please refer to the file Connector.as for further details.
+-->
+
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" xmlns:view="view.*" layout="absolute"
+	horizontalScrollPolicy="off" verticalScrollPolicy="off" creationComplete="creationCompleteHandler(event)">
+	
+	<mx:Style source="style/main.css"/>
+	
+	<mx:Script>
+		<![CDATA[
+			import model.Connector;
+			import mx.events.FlexEvent;
+			import mx.core.UIComponent;
+
+			//--------------------------------------
+			// PRIVATE PROPERTIES
+			//--------------------------------------
+			
+			[Bindable]
+			private var connector:Connector = new Connector();
+			
+			private var _lastStatus:String;
+			
+			//--------------------------------------
+			// GETTERS/SETTERS
+			//--------------------------------------
+			
+			public function get lastStatus():String
+			{
+				return _lastStatus;
+			}
+			
+			public function set lastStatus(value:String):void
+			{
+				_lastStatus = value;
+				trace("lastStatus=" + value);
+			}
+			
+			//--------------------------------------
+			// PRIVATE METHODS
+			//--------------------------------------
+			
+			private function creationCompleteHandler(event:Event):void 
+			{
+				applyParameters();
+				installJavaScriptAPI();
+				installContextMenu();
+				activateDevice();
+				
+				if (connector.gatewayURL != null && connector.sipURL != null)
+					connector.connect();
+			}
+			
+			private function applyParameters():void
+			{
+				for (var s:String in this.parameters) {
+					if (Connector.allowedParameters.indexOf(s) >= 0)
+						connector[s] = this.parameters[s];
+				}	
+			}
+			
+			private function activateDevice():void
+			{
+				var cam:Camera = Camera.getCamera();
+				if (cam != null && cam.muted) {
+					Security.showSettings(SecurityPanel.PRIVACY);
+				}
+			}
+			
+			private function installJavaScriptAPI():void
+			{
+                try {
+    				ExternalInterface.addCallback("connect",  connector.connect);
+    				ExternalInterface.addCallback("disconnect", connector.disconnect);
+    				ExternalInterface.addCallback("invite", connector.invite);
+    				ExternalInterface.addCallback("bye",    connector.bye);
+    				ExternalInterface.addCallback("accept", connector.accept);
+    				ExternalInterface.addCallback("reject", connector.reject);
+                }
+                catch (e:Error) {
+                    trace('error ' + e.message);
+                }
+   			}
+   			
+   			private function installContextMenu():void
+   			{
+				var menu:ContextMenu = this.contextMenu;
+				menu.hideBuiltInItems();
+				
+				var fullscreen:ContextMenuItem = new ContextMenuItem(_("Full screen"));
+				menu.customItems.push(fullscreen);
+				fullscreen.addEventListener(ContextMenuEvent.MENU_ITEM_SELECT, main.fullScreen);
+				
+				var configure:ContextMenuItem = new ContextMenuItem(_("Configure"));
+				menu.customItems.push(configure);
+				configure.addEventListener(ContextMenuEvent.MENU_ITEM_SELECT, main.configure);
+				trace("installed context menu");
+			}
+			
+		]]>
+	</mx:Script>
+    
+    <view:View id="main" connector="{connector}"/>
+    
+</mx:Application>
