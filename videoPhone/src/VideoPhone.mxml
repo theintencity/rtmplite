@@ -38,6 +38,9 @@ an incoming call. Please refer to the file Connector.as for further details.
 			//--------------------------------------
 			
 			[Bindable]
+			/**
+			 * The main data model and controller instance.
+			 */
 			private var connector:Connector = new Connector();
 			
 			private var _lastStatus:String;
