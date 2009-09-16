@@ -84,7 +84,7 @@ class SockStream:
                     raise StopIteration(data)
                 data = (yield multitask.recv(self.sock, 4096)) # read more from socket
                 if not data: raise ConnectionClosed
-                #if _debug: print 'socket.read[%d] %r'%(len(data), data)
+                # if _debug: print 'socket.read[%d] %r'%(len(data), data)
                 self.bytesRead += len(data)
                 self.buffer += data
         except StopIteration: raise
@@ -97,6 +97,7 @@ class SockStream:
         while len(data) > 0: # write in 4K chunks each time
             chunk, data = data[:4096], data[4096:]
             self.bytesWritten += len(chunk)
+            # if _debug: print 'socket.write[%d] %r'%(len(chunk), chunk)
             try: yield multitask.send(self.sock, chunk)
             except: raise ConnectionClosed
                                 
@@ -411,36 +412,34 @@ class Command:
         output.close()
         return msg
 
+def getfilename(path, name, root):
+    '''return the file name for the given stream. The name is derived as root/scope/name.flv where scope is
+    the the path present in the path variable.'''
+    ignore, ignore, scope = path.partition('/')
+    if scope: scope = scope + '/'
+    result = root + scope + name + '.flv'
+    if _debug: print 'filename=', result
+    return result
+
 class FLV(object):
     '''An FLV file which converts between RTMP message and FLV tags.'''
-    def __init__(self, root):
+    def __init__(self):
         self.fname = self.fp = None
         self.tsa = self.tsv = 0
-        self.root = root
     
-    @staticmethod
-    def getfilename(stream, root):
-        '''return the file name for the given stream'''
-        ignore, ignore, scope = stream.client.path.partition('/')
-        if scope: scope = scope + '/'
-        result = root + scope + stream.name + '.flv'
-        if _debug: print 'filename=', result
-        return result
-    
-    def open(self, stream, mode=0775):
-        '''Open the file for reading or writing.'''
-        fname = FLV.getfilename(stream, self.root)
-        if str(fname).find('/../') >= 0: raise ValueError('Must not contain .. in name')
-        if _debug: print 'opening file', fname
+    def open(self, path, type='live', mode=0775):
+        '''Open the file for reading (type=live) or writing (type=record or append).'''
+        if str(path).find('/../') >= 0 or str(path).find('\\..\\') >= 0: raise ValueError('Must not contain .. in name')
+        if _debug: print 'opening file', path
         self.tsa = self.tsv = 0
-        if hasattr(stream, 'mode') and stream.mode in ('record', 'append'):
-            try: os.makedirs(os.path.dirname(fname), mode)
+        if type in ('record', 'append'):
+            try: os.makedirs(os.path.dirname(path), mode)
             except: pass
-            self.fp = open(fname, 'w' if stream.mode == 'record' else 'a')
-            if stream.mode == 'record':
+            self.fp = open(path, ('w' if type == 'record' else 'a')+'b')
+            if type == 'record':
                 self.fp.write('FLV\x01\x05\x00\x00\x00\x09\x00\x00\x00\x00') # the header and first previousTagSize
         else: 
-            self.fp = open(fname, 'r')
+            self.fp = open(path, 'rb')
             hdr = self.fp.read(13)
             if hdr[:3] != 'FLV': raise ValueError('This is not a FLV file')
         return self 
@@ -463,7 +462,8 @@ class FLV(object):
             self.fp.write(data)
     
     def reader(self, stream):
-        '''A generator to periodically read the file and dispatch them to the stream.'''
+        '''A generator to periodically read the file and dispatch them to the stream. The supplied stream
+        object must have a send(Message) method and id and client properties.'''
         if _debug: print 'reader started'
         try:
             while True:
@@ -495,6 +495,7 @@ class FLV(object):
             if self.fp is not None: self.fp.close(); self.fp = None
             
 class Stream:
+    '''The stream object that is used for RTMP stream.'''
     count = 0;
     def __init__(self, client):
         self.client, self.id, self.name = client, 0, ''
@@ -526,6 +527,7 @@ class Stream:
         if self.client is not None: self.client.writeMessage(msg)
         
 class Client(Protocol):
+    '''The client object represents a single connected client to the server.'''
     def __init__(self, sock, server):
         Protocol.__init__(self, sock)
         self.server, self.agent, self.streams, self._nextCallId, self._nextStreamId, self.objectEncoding = \
@@ -870,7 +872,7 @@ class FlashServer(object):
             result = inst.onPublish(stream.client, stream)
             
             if stream.mode == 'record' or stream.mode == 'append':
-                stream.recordfile = FLV(self.root).open(stream)
+                stream.recordfile = FLV().open(getfilename(stream.client.path, stream.name, self.root), stream.mode)
             response = Command(name='onStatus', id=cmd.id, args=[dict(level='status', code='NetStream.Publish.Start', description='', details=None)])
             yield stream.send(response)
         except ValueError, E: # some error occurred. inform the app.
@@ -887,8 +889,9 @@ class FlashServer(object):
             inst.players[name] = [] # initialize the players for this stream name
         if stream not in inst.players[name]: # store the stream as players of this name
             inst.players[name].append(stream)
-        if os.path.exists(FLV.getfilename(stream, self.root)):
-            stream.playfile = FLV(self.root).open(stream)
+        path = getfilename(stream.client.path, stream.name, self.root)
+        if os.path.exists(path):
+            stream.playfile = FLV().open(path)
             multitask.add(stream.playfile.reader(stream))
         if _debug: print 'playing stream=', name, 'start=', start
         result = inst.onPlay(stream.client, stream)
@@ -929,4 +932,4 @@ if __name__ == '__main__':
         multitask.run()
     except KeyboardInterrupt:
         pass
-    if _debug: time.asctime(), 'Flash Server Stops'
+    if _debug: print time.asctime(), 'Flash Server Stops'
