@@ -8,6 +8,9 @@ code project for details on demo instructions and support information.
 The project description is contained in siprtmp.py file itself. The command
 line of siprtmp is same as rtmp, hence just replce rtmp by siprtmp in the 
 following example to start the gateway.
+--
+The rtmpclient module implements a simple RTMP client. Please see the documentation
+in rtmpclient.py source file on how it works and how it can be used.
 
 -- 
 Dependencies: Python 2.5
