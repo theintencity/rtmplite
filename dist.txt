@@ -1,5 +1,6 @@
 rtmplite/README
 rtmplite/rtmp.py
+rtmplite/rtmpclient.py
 rtmplite/amf.py
 rtmplite/multitask.py
 rtmplite/siprtmp.py
