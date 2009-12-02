@@ -67,7 +67,7 @@ _debug = False
 class ConnectionClosed:
     'raised when the client closed the connection'
 
-class SockStream:
+class SockStream(object):
     '''A class that represents a socket as a stream'''
     def __init__(self, sock):
         self.sock, self.buffer = sock, ''
@@ -102,7 +102,7 @@ class SockStream:
             except: raise ConnectionClosed
                                 
 
-class Header:
+class Header(object):
     FULL, MESSAGE, TIME, SEPARATOR, MASK = 0x00, 0x40, 0x80, 0xC0, 0xC0
     
     def __init__(self, channel=0, time=0, size=None, type=None, streamId=0):
@@ -135,12 +135,13 @@ class Header:
         return ("<Header channel=%r time=%r size=%r type=%r (0x%02x) streamId=%r>"
             % (self.channel, self.time, self.size, self.type, self.type or 0, self.streamId))
 
-class Message:
+class Message(object):
     # message types: RPC3, DATA3,and SHAREDOBJECT3 are used with AMF3
     RPC,  RPC3, DATA, DATA3, SHAREDOBJ, SHAREDOBJ3, AUDIO, VIDEO, ACK,  CHUNK_SIZE = \
     0x14, 0x11, 0x12, 0x0F,  0x13,      0x10,       0x08,  0x09,  0x03, 0x01
     
-    def __init__(self, hdr=Header(), data=''):
+    def __init__(self, hdr=None, data=''):
+        if hdr is None: hdr = Header()
         self.header, self.data = hdr, data
     
     # define properties type, streamId and time to access self.header.(property)
@@ -154,7 +155,7 @@ class Message:
     def __repr__(self):
         return ("<Message header=%r data=%r>"% (self.header, self.data))
                 
-class Protocol:
+class Protocol(object):
     # constants
     PING_SIZE           = 1536
     DEFAULT_CHUNK_SIZE  = 128
@@ -342,7 +343,7 @@ class Protocol:
             except:
                 print traceback.print_exc()
 
-class Command:
+class Command(object):
     ''' Class for command / data messages'''
     def __init__(self, type=Message.RPC, name=None, id=None, cmdData=None, args=[]):
         '''Create a new command with given type, name, id, cmdData and args list.'''
@@ -494,7 +495,7 @@ class FLV(object):
             traceback.print_exc()
             if self.fp is not None: self.fp.close(); self.fp = None
             
-class Stream:
+class Stream(object):
     '''The stream object that is used for RTMP stream.'''
     count = 0;
     def __init__(self, client):
@@ -618,7 +619,7 @@ class Client(Protocol):
         return stream
 
 
-class Server:
+class Server(object):
     '''A RTMP server listens for incoming connections and informs the app.'''
     def __init__(self, sock):
         '''Create an RTMP server on the given bound TCP socket. The server will terminate
