@@ -279,7 +279,9 @@ class Protocol(object):
                 else:
                     # if _debug: print 'Protocol.parseMessage updated old incomplete'
                     data, self.incompletePackets[channel] = data[:header.size], data[header.size:]
-                msg = Message(header, data)
+                    
+                hdr = Header(header.channel, header.time, header.size, header.type, header.streamId)
+                msg = Message(hdr, data)
                 if _debug: print 'Protocol.parseMessage msg=', msg
                 try:
                     if channel == Protocol.PROTOCOL_CHANNEL_ID:
@@ -364,7 +366,7 @@ class Command(object):
         assert (message.type in [Message.RPC, Message.RPC3, Message.DATA, Message.DATA3])
 
         length = len(message.data)
-        if length == 0: raise InvalidMessage
+        if length == 0: raise ValueError('zero length message data')
         
         if message.type == Message.RPC3 or message.type == Message.DATA3:
             assert message.data[0] == '\x00' # must be 0 in AMD3
