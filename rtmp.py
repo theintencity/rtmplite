@@ -921,7 +921,7 @@ class FlashServer(object):
                     if result:
                         yield s.send(m)
                 if stream.recordfile is not None:
-                    stream.recordfile.write(m)
+                    stream.recordfile.write(message)
 
 # The main routine to start, run and stop the service
 if __name__ == '__main__':
