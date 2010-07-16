@@ -134,6 +134,10 @@ class Header(object):
     def __repr__(self):
         return ("<Header channel=%r time=%r size=%r type=%r (0x%02x) streamId=%r>"
             % (self.channel, self.time, self.size, self.type, self.type or 0, self.streamId))
+    
+    def dup(self):
+        return Header(channel=self.channel, time=self.time, size=self.size, type=self.type, streamId=self.streamId)
+
 
 class Message(object):
     # message types: RPC3, DATA3,and SHAREDOBJECT3 are used with AMF3
@@ -154,6 +158,9 @@ class Message(object):
             
     def __repr__(self):
         return ("<Message header=%r data=%r>"% (self.header, self.data))
+    
+    def dup(self):
+        return Message(self.header.dup(), self.data[:])
                 
 class Protocol(object):
     # constants
@@ -280,8 +287,7 @@ class Protocol(object):
                     # if _debug: print 'Protocol.parseMessage updated old incomplete'
                     data, self.incompletePackets[channel] = data[:header.size], data[header.size:]
                     
-                hdr = Header(header.channel, header.time, header.size, header.type, header.streamId)
-                msg = Message(hdr, data)
+                msg = Message(header.dup(), data)
                 if _debug: print 'Protocol.parseMessage msg=', msg
                 try:
                     if channel == Protocol.PROTOCOL_CHANNEL_ID:
@@ -910,11 +916,12 @@ class FlashServer(object):
                 client = stream.client
                 for s in (inst.players.get(stream.name, [])):
                     # if _debug: print 'D', stream.name, s.name
-                    result = inst.onPlayData(s.client, s, message)
+                    m = message.dup()
+                    result = inst.onPlayData(s.client, s, m)
                     if result:
-                        yield s.send(message)
+                        yield s.send(m)
                 if stream.recordfile is not None:
-                    stream.recordfile.write(message)
+                    stream.recordfile.write(m)
 
 # The main routine to start, run and stop the service
 if __name__ == '__main__':
