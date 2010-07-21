@@ -107,7 +107,7 @@ class Header(object):
     
     def __init__(self, channel=0, time=0, size=None, type=None, streamId=0):
         self.channel, self.time, self.size, self.type, self.streamId = channel, time, size, type, streamId
-        self.extendedtime = 0
+        self.extendedtime = self.delta = 0
         if channel<64: self.hdrdata = chr(channel)
         elif channel<(64+256): self.hdrdata = '\x00'+chr(channel-64)
         else: self.hdrdata = '\x01'+chr((channel-64)%256)+chr((channel-64)/256) 
@@ -246,19 +246,25 @@ class Protocol(object):
             #if hdrtype is zero than we read a complete header
             if hdrtype == 0 or not self.lastReadHeaders.has_key(channel):
                 header = Header(channel)
+                self.lastReadHeaders[channel] = header
             else:
                 header = self.lastReadHeaders[channel]
-
-            if hdrtype < Header.SEPARATOR: # only time has changed
+            
+            time0 = header.time
+            if hdrtype < Header.SEPARATOR: # time or delta has changed
                 data = (yield self.stream.read(3))
-                header.time = struct.unpack('!I', '\x00' + data)[0] 
-
-            if hdrtype < Header.TIME: # time, size and type has changed
+                time = struct.unpack('!I', '\x00' + data)[0]
+                if hdrtype == Header.FULL: header.time, time0, header.delta = time, time, 0 # replace time
+                else: time0, header.delta = time0 + time, time # replace delta, update time
+            elif hdrtype == Header.SEPARATOR:
+                time0 = time0 + header.delta # update time based on previous delta
+                
+            if hdrtype < Header.TIME: # size and type also changed
                 data = (yield self.stream.read(3))
                 header.size = struct.unpack('!I', '\x00' + data)[0]
                 header.type = ord((yield self.stream.read(1))[0])
 
-            if hdrtype < Header.MESSAGE: # time, size, type and streamId has changed
+            if hdrtype < Header.MESSAGE: # streamId also changed
                 data = (yield self.stream.read(4))
                 header.streamId = struct.unpack('<I', data)[0]
 
@@ -266,13 +272,11 @@ class Protocol(object):
                 if _debug: print 'extended time stamp'
                 data = (yield self.stream.read(4))
                 header.extendedtime = struct.unpack('!I', data)[0]
-
-            self.lastReadHeaders[channel] = header # save the header for following packets
+                
+            #self.lastReadHeaders[channel] = header # save the header for following packets
             data = self.incompletePackets.get(channel, "") # are we continuing an incomplete packet?
             
             count = min(header.size - (len(data)), self.readChunkSize) # how much more
-            # print 'count=', count, 'hdrsize=', hdrsize, 'len(data)=', len(data), 'hdrtype=', hdrtype, 'channel=', channel, 'header=', header
-            # count = header.size - (len(data)) # how much more
             data += (yield self.stream.read(count))
 
             if len(data) < header.size: # we don't have all data
@@ -286,7 +290,8 @@ class Protocol(object):
                 else:
                     # if _debug: print 'Protocol.parseMessage updated old incomplete'
                     data, self.incompletePackets[channel] = data[:header.size], data[header.size:]
-                    
+                
+                header.time = time0 # update the lastReadHeader's time after a complete packet
                 msg = Message(header.dup(), data)
                 if _debug: print 'Protocol.parseMessage msg=', msg
                 try:
@@ -320,21 +325,23 @@ class Protocol(object):
             # special header for protocol messages
             if message.type < Message.AUDIO:
                 header = Header(Protocol.PROTOCOL_CHANNEL_ID)
-                    
+               
             # now figure out the header data bytes
-            if header.streamId != message.streamId or header.time == 0:
+            if header.streamId != message.streamId or header.time == 0 or message.type == Message.AUDIO or message.type == Message.VIDEO:
                 header.streamId, header.type, header.size, header.time = message.streamId, message.type, message.size, message.time
                 control = Header.FULL
             elif header.size != message.size or header.type != message.type:
-                header.type, header.size, header.time = message.type, message.size, message.time
+                header.type, header.size, header.time, header.delta = message.type, message.size, message.time, message.time-header.time
                 control = Header.MESSAGE
-            elif header.time != message.time:
+            elif (header.time + header.delta) != message.time:
                 # if _debug: print '------- time changed'
-                header.time = message.time
+                header.time, header.delta = message.time, message.time-header.time
                 control = Header.TIME
             else:
                 control = Header.SEPARATOR
-
+            if control == Header.MESSAGE or control == Header.TIME:
+                delta = header.delta; header = header.dup(); header.time = delta 
+            
             assert message.size == len(message.data)
 
             data = ''
@@ -434,13 +441,13 @@ class FLV(object):
     '''An FLV file which converts between RTMP message and FLV tags.'''
     def __init__(self):
         self.fname = self.fp = None
-        self.tsa = self.tsv = 0
+        self.tsp = 0
     
     def open(self, path, type='live', mode=0775):
         '''Open the file for reading (type=live) or writing (type=record or append).'''
         if str(path).find('/../') >= 0 or str(path).find('\\..\\') >= 0: raise ValueError('Must not contain .. in name')
         if _debug: print 'opening file', path
-        self.tsa = self.tsv = 0
+        self.tsp = 0
         if type in ('record', 'append'):
             try: os.makedirs(os.path.dirname(path), mode)
             except: pass
@@ -463,10 +470,8 @@ class FLV(object):
         if message.type == Message.AUDIO or message.type == Message.VIDEO:
             length = len(message.data)
             ts = (message.time if message.time != 0xffffff else message.extendedtime)
-            if message.type == Message.AUDIO: self.tsa += ts; tsx = self.tsa
-            else: self.tsv += ts; tsx = self.tsv
             # if _debug: print 'writing self.tsa/v=', self.tsa, self.tsv, 'tsx=', tsx, 'message.time=', message.time, 'type=', message.type
-            data = struct.pack('>BBHBHB', message.type, (length >> 16) & 0xff, length & 0x0ffff, (tsx >> 16) & 0xff, tsx & 0x0ffff, (tsx >> 24) & 0xff) + '\x00\x00\x00' +  message.data
+            data = struct.pack('>BBHBHB', message.type, (length >> 16) & 0xff, length & 0x0ffff, (ts >> 16) & 0xff, ts & 0x0ffff, (ts >> 24) & 0xff) + '\x00\x00\x00' +  message.data
             data += struct.pack('>I', len(data))
             self.fp.write(data)
     
@@ -475,7 +480,7 @@ class FLV(object):
         object must have a send(Message) method and id and client properties.'''
         if _debug: print 'reader started'
         try:
-            while True:
+            while self.fp is not None:
                 bytes = self.fp.read(11)
                 if len(bytes) == 0:
                     response = Command(name='onStatus', id=stream.id, args=[dict(level='status',code='NetStream.Play.Stop', description='File ended', details=None)])
@@ -486,17 +491,13 @@ class FLV(object):
                 body = self.fp.read(length); ptagsize, = struct.unpack('>I', self.fp.read(4))
                 if ptagsize != (length+11): 
                     if _debug: print 'invalid previous tag-size found:', ptagsize, '!=', (length+11),'ignored.'
-                if type == Message.AUDIO: self.tsa, ts = ts, ts - max(self.tsa, self.tsv)
-                else: self.tsv, ts = ts, ts - max(self.tsa, self.tsv)
-                # if _debug: print 'ts=', ts
-                if ts < 0: ts = 0
-                if ts > 0: yield multitask.sleep(ts / 1000.0)
                 if stream is None or stream.client is None: break # if it is closed
                 hdr = Header(0, ts if ts < 0xffffff else 0xffffff, length, type, stream.id)
                 if ts >= 0xffffff: hdr.extendedtime = ts
                 msg = Message(hdr, body)
                 # if _debug: print 'sending length=', length, 'hdr=', hdr
                 stream.send(msg)
+                if ts > self.tsp: yield multitask.sleep((ts - self.tsp) / 1000.0); self.tsp = ts
         except StopIteration: pass
         except: 
             if _debug: print 'closing the reader', (sys and sys.exc_info() or None)
