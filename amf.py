@@ -61,7 +61,7 @@ class AMF0(object):
         elif type == AMF0.REFERENCE:return self.readReference()
         elif type == AMF0.MIXEDARRAY: len = self.data.read_ulong(); return dict(map(lambda x: (int(x[0]) if x[0].isdigit() else x[0], x[1]), self.readObject().items()))
         elif type == AMF0.ARRAY: len, obj = self.data.read_ulong(), self._created([]); obj.extend(self.read() for i in xrange(len)); return obj 
-        elif type == AMF0.DATE:     return readDate()
+        elif type == AMF0.DATE:     return self.readDate()
         elif type == AMF0.LONGSTRING:return self.readLongString()
         elif type == AMF0.UNSUPPORTED:return None
         elif type == AMF0.XML:      return self.readXML()
@@ -220,7 +220,7 @@ class AMF3:
             if not class_ref: self.class_refs.append(class_)
             obj.__amf_externalized_data = self.read() # TODO: implement externalizeable interface here
         else:
-            if class_.encoding & AMF3ObjectTypes.VALUE:
+            if class_.encoding & AMF3.VALUE:
                 if not class_ref: self.class_refs.append(class_)
                 attr = self.readString()
                 while attr != '':
