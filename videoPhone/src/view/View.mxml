@@ -78,6 +78,7 @@ appears on top, and the video part which takes almost whole of the view.
 			public function configure(event:Event=null):void 
 			{
 				trace("do configure");
+				currentState = "idle";
 			}
 			
 			/**

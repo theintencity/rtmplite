@@ -118,7 +118,22 @@ an incoming call. Please refer to the file Connector.as for further details.
 				var configure:ContextMenuItem = new ContextMenuItem(_("Configure"));
 				menu.customItems.push(configure);
 				configure.addEventListener(ContextMenuEvent.MENU_ITEM_SELECT, main.configure);
+				
+				var caption:String = connector.rate == "narrowband" ? _("Use wideband Speex") : _("Use narrowband Speex");
+				var narrowband:ContextMenuItem = new ContextMenuItem(caption);
+				menu.customItems.push(narrowband);
+				narrowband.addEventListener(ContextMenuEvent.MENU_ITEM_SELECT, narrowbandHandler);
+				
 				trace("installed context menu");
+			}
+			
+			private function narrowbandHandler(event:ContextMenuEvent):void
+			{
+				var narrowband:ContextMenuItem = event.currentTarget as ContextMenuItem;
+				if (narrowband != null) {
+					connector.rate = narrowband.caption == _("Use narrowband Speex") ? "narrowband" : "wideband";
+					narrowband.caption = narrowband.caption == _("Use narrowband Speex") ? _("Use wideband Speex") : _("Use narrowband Speex");
+				}
 			}
 			
 		]]>

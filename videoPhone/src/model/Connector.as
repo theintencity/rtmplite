@@ -1,19 +1,16 @@
 /* Copyright (c) 2009, Mamta Singh. See README for details. */
 package model
 {
+	import flash.events.AsyncErrorEvent;
+	import flash.events.ErrorEvent;
+	import flash.events.EventDispatcher;
+	import flash.events.IOErrorEvent;
+	import flash.events.NetStatusEvent;
+	import flash.events.SecurityErrorEvent;
 	import flash.net.NetConnection;
 	import flash.net.NetStream;
 	import flash.net.ObjectEncoding;
 	import flash.net.SharedObject;
-	import flash.utils.Timer;
-	import flash.events.AsyncErrorEvent;
-	import flash.events.EventDispatcher;
-	import flash.events.ErrorEvent;
-	import flash.events.IOErrorEvent;
-	import flash.events.NetStatusEvent;
-	import flash.events.SecurityErrorEvent;
-	import flash.events.TimerEvent;
-	import mx.collections.ArrayCollection;
 	
 	/**
 	 * The Connector object provides the abstraction and API to connect to the backend SIP-RTMP
@@ -49,7 +46,7 @@ package model
 		 * properties are used in the View to display and be editable. These are also stored in
 		 * the local shared object if user chose to remember his configuration. 
 		 */
-		public static const allowedParameters:Array = ["signupURL", "gatewayURL", "sipURL", "authName", "authPass", "displayName", "targetURL"];
+		public static const allowedParameters:Array = ["signupURL", "gatewayURL", "sipURL", "authName", "authPass", "displayName", "targetURL", "rate"];
 		
 		/**
 		 * Maximum size of the call history in terms of number of last unique dialed or received
@@ -171,6 +168,13 @@ package model
 		 * the service on load.
 		 */
 		public var remember:Boolean = false;
+		
+		[Bindable]
+		/**
+		 * The rate of Speex audio captured by microphone is either "narrowband" or "wideband".
+		 * Default is "wideband".
+		 */
+		public var rate:String = "wideband";
 		
 		//--------------------------------------
 		// CONSTRUCTOR
@@ -572,7 +576,7 @@ package model
 		    	
 		    	var url:String = this.gatewayURL + "/" + (this.sipURL.substr(0, 4) == "sip:" ? this.sipURL.substr(4) : this.sipURL); 
 		    	trace('connect() ' + url);
-		    	nc.connect(url, this.authName, this.authPass, this.displayName);
+			    nc.connect(url, this.authName, this.authPass, this.displayName, this.rate);
 			}
 		}
 		

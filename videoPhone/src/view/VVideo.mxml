@@ -136,6 +136,7 @@ videos, such that VideoPublish is picture-in-picture inside VideoPlay view.
 				if (connector != null && connector.publishStream != null) {
 					var mic:Microphone = Microphone.getMicrophone(0);
 					mic['codec'] = "Speex";
+					mic.rate = connector.rate == "narrowband" ? 8 : 16;
 					mic['framesPerPacket'] = 1;
 					mic['encodeQuality'] = 6;
 					connector.publishStream.attachAudio(mic);

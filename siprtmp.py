@@ -116,12 +116,13 @@ coming in RTP are mapped to the audio and video data given to the played stream 
 
 Interoperability with SIP/SDP/RTP
 ---------------------------------
-The Flash application must be version 10 or higher so that it can support Speex audio codec.  We can only interoperate with S
-IP user agents that support Speex/16000. The reason is that Flash Player supports only limited set of codecs for audio captured
-from Microphone. Flash Player 9 and earlier supported only proprietary NellyMoser codec, which are not understood or supported
-beyond Flash platform. Flash Player 10 incorporated Speex audio codec which is an open source and open specification, and are
-available in several SIP applications such as X-Lite. The support of Speex audio codec is not as widely available in PSTN 
-gateways though. Note that we support only wideband (16000 Hz) variant of Speex audio codec. 
+The Flash application must be version 10 or higher so that it can support Speex audio codec.  We can only interoperate with 
+SIP user agents that support Speex/16000 or Speex/8000. The reason is that Flash Player supports only limited set of codecs for 
+audio captured from Microphone. Flash Player 9 and earlier supported only proprietary NellyMoser codec, which are not understood 
+or supported beyond Flash platform. Flash Player 10 incorporated Speex audio codec which is an open source and open specification, 
+and are available in several SIP applications such as X-Lite. The support of Speex audio codec is not as widely available in PSTN 
+gateways though. Note that we support wideband (16000 Hz) and narrowband (8000 Hz) variant of Speex audio codec. The selection
+can be done from Flash application during NetConnection.connect. 
 
 This section describes other interoperability issues with a SIP or Flash client. When the client issues an outbound
 "invite" request, the mapped SIP INVITE advertises the session using SDP module of the SIP stack. This session contains 
@@ -456,8 +457,6 @@ except:
     
 _debug = False
 
-audio_fmt, video_fmt = format(pt=-1, name='speex', rate=16000), format(pt=-1, name='x-flv', rate=90000) # payload types and sampling rates used for audio and video
-
 class Context(object):
     '''Context stores state needed for gateway. The client.context property holds an instance of this class. The methods invoked
     by RTMP side are prefixed with rtmp_ and those invoked by SIP side are prefixed sip_. All such methods are actually generators.
@@ -469,10 +468,12 @@ class Context(object):
         self._gin = self._gss = None  # generators that needs to be closed on unregister
         self._ts = self._txseq = self._rxseq = self._rxlen = 0
         self._time, self._rxchunks = time.time(), []
+        self._audio, self._video = format(pt=-1, name='speex', rate=16000), format(pt=-1, name='x-flv', rate=90000)
         if not hasattr(self.app, '_ports'): self.app._ports = {}     # used to persist SIP port wrt registering URI. map: uri=>port
         
-    def rtmp_register(self, login=None, passwd='', display=None):
+    def rtmp_register(self, login=None, passwd='', display=None, rate='wideband'):
         scheme, ignore, aor = self.client.path.partition('/')
+        if rate == 'narrowband': self._audio.rate = 8000
         if _debug: print 'rtmp-register scheme=', scheme, 'aor=', aor, 'login=', login, 'passwd=', '*'*(len(passwd)), 'display=', display
         addr = '"%s" <sip:%s>'%(display, aor) if display else 'sip:%s'%(aor)
         sock = socket.socket(type=socket.SOCK_DGRAM) # signaling socket for SIP
@@ -512,10 +513,9 @@ class Context(object):
             if self._gin is not None: self._gin.close(); self._gin = None
             if self._gss is not None: self._gss.close(); self._gss = None
     
-    @staticmethod
-    def _get_sdp_streams(): # returns a list of audio and video streams.
+    def _get_sdp_streams(self): # returns a list of audio and video streams.
         audio, video = SDP.media(media='audio'), SDP.media(media='video')
-        audio.fmt, video.fmt = [format(pt=96, name=audio_fmt.name, rate=audio_fmt.rate)], [format(pt=97, name=video_fmt.name, rate=video_fmt.rate)]
+        audio.fmt, video.fmt = [format(pt=96, name=self._audio.name, rate=self._audio.rate)], [format(pt=97, name=self._video.name, rate=self._video.rate)]
         return [audio, video]
     
     def rtmp_invite(self, dest):
@@ -638,12 +638,11 @@ class Context(object):
         try:
             p = RTP(data) if not isinstance(data, RTP) else data
             #if _debug: print 'RTP  pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
-            if str(fmt.name).lower() == str(video_fmt.name).lower():  # this is a video (FLV) packet, just assemble and return to rtmp
+            if str(fmt.name).lower() == str(self._video.name).lower():  # this is a video (FLV) packet, just assemble and return to rtmp
                 self.video_rtp2rtmp(p)
             else: # this is a audio (Speex) packet. Build RTMP header and return to rtmp
                 payload = '\xb2' + p.payload
-                t, self._time = int((time.time()-self._time)*1000), time.time()
-                t = 20 # hard code it for now
+                t = (p.ts / (self._audio.rate / 1000)) # assume 20 ms packet at 16000 Hz, one 16 ts is 1 ms (t)
                 if self.play_stream is not None:
                     header = Header(time=t, size=len(payload), type=0x08, streamId=self.play_stream.id)
                     m = Message(header, payload)
@@ -661,8 +660,8 @@ class Context(object):
             if message.header.type == 0x08 and message.size > 1: # audio packet of speex codec
                 #if _debug: print '  Audio is %r'%(message.data[0])
                 if self.session and self.session.media:
-                    self._ts += 320 # assume 20 ms data at 16000 Hz
-                    self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=audio_fmt)
+                    self._ts += (self._audio.rate * 20 / 1000) # assume 20 ms data at 16000 Hz
+                    self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=self._audio)
         yield
 
 
@@ -681,7 +680,7 @@ class Context(object):
             self._txseq += 1
             if self.session and self.session.media:
                 for packet in packets:
-                    self.session.media.send(payload=packet, ts=message.time*(video_fmt.rate/1000), marker=False, fmt=video_fmt)
+                    self.session.media.send(payload=packet, ts=message.time*(self._video.rate/1000), marker=False, fmt=self._video)
                     # yield multitask.sleep(0.005) # sleep for 5 ms
         except: 
             if _debug: print 'exception in rtmp2rtp', (sys and sys.exc_info())
