@@ -13,7 +13,7 @@ The rtmpclient module implements a simple RTMP client. Please see the documentat
 in rtmpclient.py source file on how it works and how it can be used.
 
 -- 
-Dependencies: Python 2.5
+Dependencies: Python 2.6
 --
 Typically an application can launch this server as follows:
 $ python rtmp.py -d
