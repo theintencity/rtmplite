@@ -105,7 +105,7 @@ class NetConnection(object):
         path, ignore, ignore = url[7:].partition('?')
         hostport, ignore, path = path.partition('/')
         host, port = (hostport.split(':', 1) + ['1935'])[:2]
-        self.data.update(tcUrl=url, app=path.partition('/')[0])
+        self.data.update(tcUrl=url, app=path)
         sock = socket.socket(type=socket.SOCK_STREAM)
         if _debug: print 'NetConnection.connect url=', url, 'host=', host, 'port=', port
         try: sock.connect((host, int(port)))
@@ -238,7 +238,7 @@ class FLVReader(Resource): # Read a local FLV file, one message at a time, and i
     def open(self, url):
         if _debug: print 'FLVReader.open', url
         self.url, u = url, urlparse.urlparse(url, 'file')
-        self.fp = FLV().open(u.path, 'live')
+        self.fp = FLV().open(u.path)
         if self.fp:
             self._gen = self.fp.reader(self); multitask.add(self._gen) 
             raise StopIteration, self
@@ -310,7 +310,7 @@ def copy(src, dest):
 _usage = '''usage: python rtmpclient.py [-d] src dest
   -d: verbose mode prints trace statements
   src and dest: either "rtmp" URL or a file name. Use "id" to specify stream name, e.g., rtmp://localhost/myapp?id=user1
-  This software depends on Python 2.5 (won't work with 2.4, 2.6 or 3.0)'''
+  This software depends on Python 2.6 (won't work with 2.4 or 3.0)'''
 
 # The main routine to invoke the copy method
 if __name__ == '__main__':
