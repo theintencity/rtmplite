@@ -422,7 +422,15 @@ Note, however, that security using this method is not end-to-end secure even for
 access to your media stream. You should use both rtmps and sips together. If your gateway server is running on local host, you
 may not need rtmps though. Note also that signaling security does not guarantee media encryption and privacy. My implementation
 will make sure that SRTP is required when using sips.
+
+In an active call, you can send DTMF digits using RFC 2833. The following example sends digit "5" in the RTP session of the 
+active call using RFC 2833 (touch-tones). 
+
+  nc.call("sendDTMF", null, "5");
   
+The digits are sent only if the remote end acknowledged support for telephone-event in SDP of session initiation. Only single
+digit can be sent using sendDTMF using rfc2833.py module, and does not use redundancy rfc2198.py payload.
+
 Limitations
 -----------
  1. The URI schemes 'sips' and 'rtmps' are not yet implemented.
@@ -451,6 +459,7 @@ try:
     from std.rfc3550 import RTP
     from std.rfc2396 import Address
     from std.rfc4566 import SDP, attrs as format
+    from std.rfc2833 import DTMF
 except:
     print 'Please include p2p-sip src directory in your PYTHONPATH'
     exit(1)
@@ -469,6 +478,7 @@ class Context(object):
         self._ts = self._txseq = self._rxseq = self._rxlen = 0
         self._time, self._rxchunks = time.time(), []
         self._audio, self._video = format(pt=-1, name='speex', rate=16000), format(pt=-1, name='x-flv', rate=90000)
+        self._touchtone = format(pt=-1, name='telephone-event', rate=8000)
         if not hasattr(self.app, '_ports'): self.app._ports = {}     # used to persist SIP port wrt registering URI. map: uri=>port
         
     def rtmp_register(self, login=None, passwd='', display=None, rate='wideband'):
@@ -664,6 +674,18 @@ class Context(object):
                     self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=self._audio)
         yield
 
+    def rtmp_sendDTMF(self, digit):
+        if _debug: print 'rtmp-sendDTMF', digit
+        if len(digit) != 1:
+            if _debug: print '  only single digit DTMF is supported in sendDTMF'
+        elif not self.session or not self.session.media or not self.session.media.hasType('audio'):
+            if _debug: print '  ignoring sendDTMF: not an active audio call'
+        else:
+            payload = repr(DTMF(key=digit, end=True))
+            if _debug: print '  sending payload %r'%(payload,)
+            self.session.media.send(payload=payload, ts=self._ts, marker=False, fmt=self._touchtone)
+        yield
+            
 
     def video_rtmp2rtp(self, message): # convert given RTMP message to RTP packets and send to SIP side
         '''Formatting of RTMP media message to RTP payload and sending to RTP session.'''

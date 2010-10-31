@@ -546,7 +546,11 @@ package model
 		 */
 		public function sendDigit(str:String):void
 		{
-			trace("sending digit " + str);
+			if (currentState == ACTIVE) {
+				trace("sending digit " + str);
+				if (nc != null)
+					nc.call("sendDTMF", null, str);
+			}
 		}
 		
 		//--------------------------------------
