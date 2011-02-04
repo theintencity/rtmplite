@@ -129,8 +129,8 @@ class Header(object):
         return data
 
     def __repr__(self):
-        return ("<Header channel=%r time=%r size=%r type=%r streamId=%r>"
-            % (self.channel, self.time, self.size, self.type, self.streamId))
+        return ("<Header channel=%r time=%r size=%r type=%s (%r) streamId=%r>"
+            % (self.channel, self.time, self.size, Message.type_name.get(self.type, 'unknown'), self.type, self.streamId))
     
     def dup(self):
         return Header(channel=self.channel, time=self.time, size=self.size, type=self.type, streamId=self.streamId)
@@ -138,8 +138,9 @@ class Header(object):
 
 class Message(object):
     # message types: RPC3, DATA3,and SHAREDOBJECT3 are used with AMF3
-    RPC,  RPC3, DATA, DATA3, SHAREDOBJ, SHAREDOBJ3, AUDIO, VIDEO, ACK,  CHUNK_SIZE = \
-    0x14, 0x11, 0x12, 0x0F,  0x13,      0x10,       0x08,  0x09,  0x03, 0x01
+    CHUNK_SIZE,   ABORT,   ACK,   USER_CONTROL, WIN_ACK_SIZE, SET_PEER_BW, AUDIO, VIDEO, DATA3, SHAREDOBJ3, RPC3, DATA, SHAREDOBJ, RPC = \
+    0x01,         0x02,    0x03,  0x04,         0x05,         0x06,        0x08,  0x09,  0x0F,  0x10,       0x11, 0x12, 0x13,      0x14
+    type_name = dict(enumerate('unknown chunk-size abort ack user-control win-ack-size set-peer-bw unknown audio video unknown unknown unknown unknown unknown data3 sharedobj3 rpc3 data sharedobj rpc'.split()))
     
     def __init__(self, hdr=None, data=''):
         self.header, self.data = hdr or Header(), data
@@ -160,11 +161,13 @@ class Message(object):
                 
 class Protocol(object):
     PING_SIZE, DEFAULT_CHUNK_SIZE, PROTOCOL_CHANNEL_ID = 1536, 128, 2 # constants
+    READ_WIN_SIZE, WRITE_WIN_SIZE = 1000000L, 1073741824L
     
     def __init__(self, sock):
         self.stream = SockStream(sock)
         self.lastReadHeaders, self.incompletePackets, self.lastWriteHeaders = dict(), dict(), dict()
         self.readChunkSize = self.writeChunkSize = Protocol.DEFAULT_CHUNK_SIZE
+        self.readWinSize0, self.readWinSize, self.writeWinSize0, self.writeWinSize = 0L, self.READ_WIN_SIZE, 0L, self.WRITE_WIN_SIZE
         self.nextChannelId = Protocol.PROTOCOL_CHANNEL_ID + 1
         self.writeLock, self.writeQueue = threading.Lock(), Queue.Queue()
             
@@ -173,11 +176,14 @@ class Protocol(object):
             
     def protocolMessage(self, msg):
         if msg.type == Message.ACK: # respond to ACK requests
-            response = Message()
-            response.type, response.data = msg.type, msg.data
-            self.writeMessage(response)
+            self.writeWinSize0 = struct.unpack('>L', msg.data)[0]
+#            response = Message()
+#            response.type, response.data = msg.type, msg.data
+#            self.writeMessage(response)
         elif msg.type == Message.CHUNK_SIZE:
             self.readChunkSize = struct.unpack('>L', msg.data)[0]
+        elif msg.type == Message.WIN_ACK_SIZE:
+            self.readWinSize, self.readWinSize0 = struct.unpack('>L', msg.data)[0], self.stream.bytesRead
             
     def connectionClosed(self):
         yield
@@ -271,6 +277,14 @@ class Protocol(object):
             
             data += (yield self.stream.read(count))
 
+            # check if we need to send Ack
+            if self.readWinSize is not None:
+                if self.stream.bytesRead > (self.readWinSize0 + self.readWinSize):
+                    self.readWinSize0 = self.stream.bytesRead
+                    ack = Message()
+                    ack.type, ack.data = Message.ACK, struct.pack('>L', self.readWinSize0)
+                    self.writeMessage(ack)
+                    
             if len(data) < header.size: # we don't have all data
                 self.incompletePackets[channel] = data
             else: # we have all data
@@ -610,7 +624,6 @@ class Client(Protocol):
                 self.agent = cmd.cmdData
                 self.objectEncoding = self.agent['objectEncoding']
                 yield self.server.queue.put((self, cmd.args)) # new connection
-                return
             elif cmd.name == 'createStream':
                 response = Command(name='_result', id=cmd.id, type=(self.objectEncoding == 0.0 and Message.RPC or Message.RPC3), \
                                    args=[self._nextStreamId])
@@ -622,12 +635,10 @@ class Client(Protocol):
                 self._nextStreamId += 1
 
                 yield self.queue.put(('stream', stream)) # also notify others of our new stream
-                return
             elif cmd.name == 'closeStream':
                 assert msg.streamId in self.streams
                 yield self.streams[msg.streamId].queue.put(None) # notify closing to others
                 del self.streams[msg.streamId]
-                return
             else:
                 # if _debug: print 'Client.messageReceived cmd=', cmd
                 yield self.queue.put(('command', cmd)) # RPC call
@@ -645,7 +656,7 @@ class Client(Protocol):
         response.id, response.name, response.type = 1, '_result', Message.RPC
         if _debug: print 'Client.accept() objectEncoding=', self.objectEncoding
         response.setArg(dict(level='status', code='NetConnection.Connect.Success',
-                        description='Connection succeeded.', details=None,
+                        description='Connection succeeded.', fmsVer='rtmplite/7,0', details=None,
                         objectEncoding=self.objectEncoding))
         self.writeMessage(response.toMessage())
             
@@ -654,7 +665,7 @@ class Client(Protocol):
         response = Command()
         response.id, response.name, response.type = 1, '_error', Message.RPC
         response.setArg(dict(level='status', code='NetConnection.Connect.Rejected',
-                        description=reason, details=None))
+                        description=reason, fmsVer='rtmplite/7,0', details=None))
         self.writeMessage(response.toMessage())
             
     def call(self, method, *args):
@@ -699,6 +710,7 @@ class Server(object):
                 if _debug: print 'connection received from', remote
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # make it non-block
                 client = Client(sock, self)
+        except GeneratorExit: pass # terminate
         except: 
             if _debug: print 'rtmp.Server exception ', (sys and sys.exc_info() or None)
         
@@ -795,6 +807,11 @@ class FlashServer(object):
                         app = self.apps[name] if name in self.apps else self.apps['*'] # application class
                         if client.path in self.clients: inst = self.clients[client.path][0]
                         else: inst = app()
+                        
+                        win_ack = Message()
+                        win_ack.type, win_ack.data = Message.WIN_ACK_SIZE, struct.pack('>L', client.writeWinSize)
+                        client.writeMessage(win_ack)
+                        
                         try: 
                             result = inst.onConnect(client, *args)
                         except: 
@@ -810,6 +827,7 @@ class FlashServer(object):
                             multitask.add(self.clientlistener(client)) # receive messages from client.
                         else: 
                             yield client.rejectConnection(reason='Rejected in onConnect')
+        except GeneratorExit: pass # terminate
         except StopIteration: raise
         except: 
             if _debug: print 'serverlistener exception', (sys and sys.exc_info() or None)
@@ -914,7 +932,7 @@ class FlashServer(object):
             else: # audio or video message
                 yield self.mediahandler(stream, message)
         except GeneratorExit: pass
-        except StopIteration: pass
+        except StopIteration: raise
         except: 
             if _debug: print 'exception in streamhandler', (sys and sys.exc_info())
     
