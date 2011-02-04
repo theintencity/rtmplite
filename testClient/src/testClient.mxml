@@ -47,6 +47,7 @@ This is a test code to test the Flash RTMP server for NetConnection and NetStrea
 	        	nc.addEventListener(IOErrorEvent.IO_ERROR, errorHandler, false, 0, true);
 	        	nc.addEventListener(SecurityErrorEvent.SECURITY_ERROR, errorHandler, false, 0, true);
 	        	nc.addEventListener(AsyncErrorEvent.ASYNC_ERROR, errorHandler, false, 0, true);
+	        	nc.client = {};
 	        	
 	        	debug('connect() ' + url);
 	        	nc.connect(url);
@@ -68,6 +69,7 @@ This is a test code to test the Flash RTMP server for NetConnection and NetStrea
         		ns.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
         		ns.addEventListener(IOErrorEvent.IO_ERROR, streamErrorHandler, false, 0, true);
         		ns.addEventListener(AsyncErrorEvent.ASYNC_ERROR, streamErrorHandler, false, 0, true);
+        		ns.client = {};
         		
         		ns.publish(name, record ? 'record' : null);
         		local.attachCamera(Camera.getCamera());
@@ -82,6 +84,8 @@ This is a test code to test the Flash RTMP server for NetConnection and NetStrea
         		ns.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
         		ns.addEventListener(IOErrorEvent.IO_ERROR, streamErrorHandler, false, 0, true);
         		ns.addEventListener(AsyncErrorEvent.ASYNC_ERROR, streamErrorHandler, false, 0, true);
+        		ns.client = {};
+        		
         		ns.play(name);
         		
         		remoteVideo.attachNetStream(ns);
