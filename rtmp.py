@@ -668,6 +668,15 @@ class Client(Protocol):
                         description=reason, fmsVer='rtmplite/7,0', details=None))
         self.writeMessage(response.toMessage())
             
+    def redirectConnection(self, url, reason='Connection failed'):
+        '''Method to redirect an incoming client to the given url.'''
+        response = Command()
+        response.id, response.name, response.type = 1, '_error', Message.RPC
+        extra = dict(code=302, redirect=url)
+        response.setArg(dict(level='status', code='NetConnection.Connect.Rejected',
+                        description=reason, fmsVer='rtmplite/7,0', details=None, ex=extra))
+        self.writeMessage(response.toMessage())
+
     def call(self, method, *args):
         '''Call a (callback) method on the client.'''
         cmd = Command()
