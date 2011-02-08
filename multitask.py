@@ -1029,7 +1029,9 @@ class TaskManager(object):
             try:
                 select.select([fd], [fd], [fd], 0.0)
             except:
-                self._enqueue(fd.task, exc_info=sys.exc_info())
+                # TODO: do not enqueue the exception (socket.error) so that it does not crash
+                # when closing an already closed socket. See rtmplite issue #28
+                # self._enqueue(fd.task, exc_info=sys.exc_info())
                 fd._remove_from_fdsets(self._read_waits,
                                        self._write_waits,
                                        self._exc_waits)
