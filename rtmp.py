@@ -395,7 +395,7 @@ class Command(object):
         else:
             data = message.data
         
-        amfReader = amf.AMF0(data) if message.type in (Message.RPC, Message.DATA) else amf.AMF3(data)
+        amfReader = amf.AMF0(data)
 
         inst = cls()
         inst.type = message.type
@@ -419,7 +419,7 @@ class Command(object):
         assert self.type
         msg.type = self.type
         output = amf.BytesIO()
-        amfWriter = amf.AMF0(output) if msg.type in (Message.RPC, Message.DATA) else amf.AMF3(output)
+        amfWriter = amf.AMF0(output)
         amfWriter.write(self.name)
         if msg.type == Message.RPC or msg.type == Message.RPC3:
             amfWriter.write(self.id)
@@ -815,8 +815,8 @@ class FlashServer(object):
                 if not client:                # if the server aborted abnormally,
                     break                     #    hence close the listener.
                 if _debug: print 'client connection received', client, args
-                # if client.objectEncoding != 0 and client.objectEncoding != 3:
-                if client.objectEncoding != 0:
+                if client.objectEncoding != 0 and client.objectEncoding != 3:
+                #if client.objectEncoding != 0:
                     yield client.rejectConnection(reason='Unsupported encoding ' + str(client.objectEncoding) + '. Please use NetConnection.defaultObjectEncoding=ObjectEncoding.AMF0')
                     yield client.connectionClosed()
                 else:

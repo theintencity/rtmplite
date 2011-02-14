@@ -256,7 +256,7 @@ class AMF3(object):
         if decode:
             try: result = unicode(result, 'utf8') # Try decoding as regular utf8 first. TODO: will it always raise exception?
             except UnicodeDecodeError: result = AMF3._decode_utf8_modified(result)
-        if len(result) > 0: self.refs.append(result)
+        if len(result) > 0: refs.append(result)
         return result
     def writeString(self, data, writeType=True, refs=None, encode=True):
         if writeType: self.data.write_u8(AMF3.STRING)
