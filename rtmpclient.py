@@ -33,7 +33,7 @@ To understand the code, please see the high level method copy() and open(). Usua
 want to work on individual resource objects, use the open method and the returned resource object.
 '''
 
-import os, sys, traceback, time, urlparse, socket, multitask, amf
+import sys, traceback, time, urlparse, socket, multitask
 from rtmp import Protocol, Message, Command, ConnectionClosed, Stream, FLV
 
 _debug = False
