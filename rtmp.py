@@ -820,7 +820,11 @@ class FlashServer(object):
                     yield client.rejectConnection(reason='Unsupported encoding ' + str(client.objectEncoding) + '. Please use NetConnection.defaultObjectEncoding=ObjectEncoding.AMF0')
                     yield client.connectionClosed()
                 else:
-                    client.path = str(client.agent.app); name, ignore, scope = client.path.partition('/')
+                    client.path = str(client.agent.app) if hasattr(client.agent, 'app') else str(client.agent['app']) if isinstance(client.agent, dict) else None
+                    if not client.path:
+                        yield client.rejectConnection(reason='Missing app path')
+                        break
+                    name, ignore, scope = client.path.partition('/')
                     if '*' not in self.apps and name not in self.apps:
                         yield client.rejectConnection(reason='Application not found: ' + name)
                     else: # create application instance as needed and add in our list
@@ -855,7 +859,7 @@ class FlashServer(object):
         except GeneratorExit: pass # terminate
         except StopIteration: raise
         except: 
-            if _debug: print 'serverlistener exception', (sys and sys.exc_info() or None)
+            if _debug: print 'serverlistener exception', traceback.print_exc()
             
     def clientlistener(self, client):
         '''Client listener (generator). It receives a command and invokes client handler, or receives a new stream and invokes streamlistener.'''

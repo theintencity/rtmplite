@@ -188,7 +188,7 @@ class RTMPReader(Resource): # connect to RTMP URL and play the stream identified
         raise StopIteration, self
     
     def close(self):
-        if self.nc: yield self.nc.close()
+        if self.nc is not None: yield self.nc.close(); self.nc = None
         if self._gen is not None: self._gen.close()
         
     def run(self):
@@ -219,7 +219,7 @@ class RTMPWriter(Resource): # Connect to RTMP URL and publish the stream identif
         raise StopIteration, self
     
     def close(self):
-        if self.nc: yield self.nc.close()
+        if self.nc is not None: yield self.nc.close(); self.nc = None
         
     def put(self, item):
         if self.ns is not None: self.ns.stream.send(item)
