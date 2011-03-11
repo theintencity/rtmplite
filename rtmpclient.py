@@ -253,7 +253,7 @@ class FLVReader(Resource): # Read a local FLV file, one message at a time, and i
         def sendInternal(self, msg): yield self.queue.put(msg)
         if msg.type in (Message.RPC, Message.RPC3):
             cmd = Command.fromMessage(msg)
-            if cmd.name == 'onStatus' and len(cmd.args) > 0 and cmd.args[0].get('code', '') == 'NetStream.Play.Stop': msg = False # indicates end of file
+            if cmd.name == 'onStatus' and len(cmd.args) > 0 and hasattr(cmd.args[0], 'code') and cmd.args[0].code == 'NetStream.Play.Stop': msg = False # indicates end of file
         multitask.add(sendInternal(self, msg))
     
 class FLVWriter(Resource): # Write a local FLV file.
