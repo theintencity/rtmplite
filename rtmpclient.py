@@ -35,6 +35,7 @@ want to work on individual resource objects, use the open method and the returne
 
 import sys, traceback, time, urlparse, socket, multitask
 from rtmp import Protocol, Message, Command, ConnectionClosed, Stream, FLV
+from amf import Object
 
 _debug = False
 
@@ -98,14 +99,14 @@ class NetConnection(object):
     invokes the connect() method to initiate the connection, create one or more NetStream, and finally close() method to disconnect.'''
     def __init__(self):
         self.client = self.path = None
-        self.data = dict(videoCodecs=252.0, audioCodecs=3191.0, flashVer='WIN 10,0,32,18', swfUrl=None, videoFunction=1.0, capabilities=15.0, fpad=False, objectEncoding=0.0)
+        self.data = Object(videoCodecs=252.0, audioCodecs=3191.0, flashVer='WIN 10,0,32,18', swfUrl=None, videoFunction=1.0, capabilities=15.0, fpad=False, objectEncoding=0.0)
     
     def connect(self, url, timeout=None): # Generator to connect to the given url, and return True or False.
         if url[:7].lower() != 'rtmp://': raise ValueError('Invalid URL scheme. Must be rtmp://')
         path, ignore, ignore = url[7:].partition('?')
         hostport, ignore, path = path.partition('/')
         host, port = (hostport.split(':', 1) + ['1935'])[:2]
-        self.data.update(tcUrl=url, app=path)
+        self.data.tcUrl, self.data.app = url, path
         sock = socket.socket(type=socket.SOCK_STREAM)
         if _debug: print 'NetConnection.connect url=', url, 'host=', host, 'port=', port
         try: sock.connect((host, int(port)))
