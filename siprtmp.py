@@ -482,6 +482,7 @@ class Context(object):
         if not hasattr(self.app, '_ports'): self.app._ports = {}     # used to persist SIP port wrt registering URI. map: uri=>port
         
     def rtmp_register(self, login=None, passwd='', display=None, rate='wideband'):
+        global agent
         scheme, ignore, aor = self.client.path.partition('/')
         if rate == 'narrowband': self._audio.rate = 8000
         if _debug: print 'rtmp-register scheme=', scheme, 'aor=', aor, 'login=', login, 'passwd=', '*'*(len(passwd)), 'display=', display
@@ -489,7 +490,8 @@ class Context(object):
         sock = socket.socket(type=socket.SOCK_DGRAM) # signaling socket for SIP
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         port = self.app._ports.get(aor, 0)
-        try: sock.bind(('0.0.0.0', port)); port = sock.getsockname()[1] 
+        host = (agent.sock.getsockname()[0] if agent.sock else '0.0.0.0')
+        try: sock.bind((host, port)); port = sock.getsockname()[1] 
         except: 
             if _debug: print '  exception in register', (sys and sys.exc_info() or None)
             self.client.rejectConnection(reason='Cannot bind socket port')
