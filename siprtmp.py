@@ -490,8 +490,7 @@ class Context(object):
         sock = socket.socket(type=socket.SOCK_DGRAM) # signaling socket for SIP
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         port = self.app._ports.get(aor, 0)
-        host = (agent.sock.getsockname()[0] if agent.sock else '0.0.0.0')
-        try: sock.bind((host, port)); port = sock.getsockname()[1] 
+        try: sock.bind((agent.siphost, port)); port = sock.getsockname()[1] 
         except: 
             if _debug: print '  exception in register', (sys and sys.exc_info() or None)
             self.client.rejectConnection(reason='Cannot bind socket port')
@@ -794,9 +793,10 @@ class Gateway(App):
 if __name__ == '__main__':
     from optparse import OptionParser
     parser = OptionParser()
-    parser.add_option('-i', '--host',    dest='host',    default='0.0.0.0', help="listening IP address. Default '0.0.0.0'")
-    parser.add_option('-p', '--port',    dest='port',    default=1935, type="int", help='listening port number. Default 1935')
+    parser.add_option('-i', '--host',    dest='host',    default='0.0.0.0', help="listening IP address for RTMP. Default '0.0.0.0'")
+    parser.add_option('-p', '--port',    dest='port',    default=1935, type="int", help='listening port number for RTMP. Default 1935')
     parser.add_option('-r', '--root',    dest='root',    default='./',       help="document root directory. Default './'")
+    parser.add_option('-s', '--siphost', dest='siphost', default='0.0.0.0', help="listening IP address for SIP. Default '0.0.0.0'")
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
     (options, args) = parser.parse_args()
     
@@ -808,7 +808,7 @@ if __name__ == '__main__':
     try:
         agent = FlashServer()
         agent.apps['sip'] = Gateway
-        agent.root = options.root
+        agent.root, agent.siphost = options.root, options.siphost
         agent.start(options.host, options.port)
         if _debug: print time.asctime(), 'Flash Server Starts - %s:%d' % (options.host, options.port)
         while True:
