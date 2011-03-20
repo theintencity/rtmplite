@@ -877,24 +877,26 @@ class FlashServer(object):
         except StopIteration: raise
         except:
             if _debug: print 'clientlistener exception', (sys and sys.exc_info() or None)
-            traceback.print_exc()
-            
-        # client is disconnected, clear our state for application instance.
-        if _debug: print 'cleaning up client', client.path
-        inst = None
-        if client.path in self.clients:
-            inst = self.clients[client.path][0]
-            self.clients[client.path].remove(client)
-        for stream in client.streams.values(): # for all streams of this client
-            self.closehandler(stream)
-        client.streams.clear() # and clear the collection of streams
-        if client.path in self.clients and len(self.clients[client.path]) == 1: # no more clients left, delete the instance.
-            if _debug: print 'removing the application instance'
-            inst = self.clients[client.path][0]
-            inst._clients = None
-            del self.clients[client.path]
-        if inst is not None: inst.onDisconnect(client)
         
+        try:
+            # client is disconnected, clear our state for application instance.
+            if _debug: print 'cleaning up client', client.path
+            inst = None
+            if client.path in self.clients:
+                inst = self.clients[client.path][0]
+                self.clients[client.path].remove(client)
+            for stream in client.streams.values(): # for all streams of this client
+                self.closehandler(stream)
+            client.streams.clear() # and clear the collection of streams
+            if client.path in self.clients and len(self.clients[client.path]) == 1: # no more clients left, delete the instance.
+                if _debug: print 'removing the application instance'
+                inst = self.clients[client.path][0]
+                inst._clients = None
+                del self.clients[client.path]
+            if inst is not None: inst.onDisconnect(client)
+        except: 
+            if _debug: print 'clientlistener exception', (sys and sys.exc_info() or None)
+            
     def closehandler(self, stream):
         '''A stream is closed explicitly when a closeStream command is received from given client.'''
         if stream.client is not None:
@@ -934,15 +936,18 @@ class FlashServer(object):
         
     def streamlistener(self, stream):
         '''Stream listener (generator). It receives stream message and invokes streamhandler.'''
-        stream.recordfile = None # so that it doesn't complain about missing attribute
-        while True:
-            msg = (yield stream.recv())
-            if not msg:
-                if _debug: print 'stream closed'
-                self.closehandler(stream)
-                break
-            # if _debug: msg
-            multitask.add(self.streamhandler(stream, msg))
+        try:
+            stream.recordfile = None # so that it doesn't complain about missing attribute
+            while True:
+                msg = (yield stream.recv())
+                if not msg:
+                    if _debug: print 'stream closed'
+                    self.closehandler(stream)
+                    break
+                # if _debug: msg
+                multitask.add(self.streamhandler(stream, msg))
+        except: 
+            if _debug: print 'streamlistener exception', (sys and sys.exc_info() or None)
             
     def streamhandler(self, stream, message):
         '''A generator to handle a single message on the stream.'''

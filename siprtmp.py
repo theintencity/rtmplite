@@ -497,32 +497,40 @@ class Context(object):
             raise StopIteration(None)
         #self.ports[name] = sock.getsockname()[1] # store the port number
         # TODO: storing and keeping the persistent port per user doesn't work well if the app is re-loaded in brief interval.
-        user = self.user = User(sock, nat=False).start() # create SIP user. Ownership of sock is moved to User.
-        user.context, user.username, user.password = self, login, passwd
-        if user.password:
-            if _debug: print '  registering addr=', addr, 'port=', port
-            result, reason = yield user.bind(addr, refresh=True)
-            if _debug: print '  registration returned', result, reason
-            if result == 'failed': 
-                self.client.rejectConnection(reason=reason)
-                raise StopIteration(None)
-            self._gin = self._incominghandler(); multitask.add(self._gin) # incoming SIP messages handler
-        if _debug: print '  register successful'
-        self.client.accept()
+        try:
+            user = self.user = User(sock, nat=False).start() # create SIP user. Ownership of sock is moved to User.
+            user.context, user.username, user.password = self, login, passwd
+            if user.password:
+                if _debug: print '  registering addr=', addr, 'port=', port
+                result, reason = yield user.bind(addr, refresh=True)
+                if _debug: print '  registration returned', result, reason
+                if result == 'failed': 
+                    self.client.rejectConnection(reason=reason)
+                    raise StopIteration(None)
+                self._gin = self._incominghandler(); multitask.add(self._gin) # incoming SIP messages handler
+            if _debug: print '  register successful'
+            self.client.accept()
+        except: 
+            if _debug: print '  exception in register', (sys and sys.exc_info() or None)
+            self.client.rejectConnection(reason=sys and str(sys.exc_info()[1]) or 'Server Error')
+            raise StopIteration(None)
         
     def rtmp_unregister(self):
-        if self.user is not None:
-            if _debug: print 'rtmp-unregister', (self.client and self.client.path or None)
-            yield self._cleanup()    # close the call first, if any
-            yield self.user.close()
-            yield self.user.stop()
-            if self.user.sock:
-                try: self.user.sock.close()
-                except: pass
-                self.user.sock = None
-            self.user.context = None; self.user = None
-            if self._gin is not None: self._gin.close(); self._gin = None
-            if self._gss is not None: self._gss.close(); self._gss = None
+        try:
+            if self.user is not None:
+                if _debug: print 'rtmp-unregister', (self.client and self.client.path or None)
+                yield self._cleanup()    # close the call first, if any
+                yield self.user.close()
+                yield self.user.stop()
+                if self.user.sock:
+                    try: self.user.sock.close()
+                    except: pass
+                    self.user.sock = None
+                self.user.context = None; self.user = None
+                if self._gin is not None: self._gin.close(); self._gin = None
+                if self._gss is not None: self._gss.close(); self._gss = None
+        except:
+            if _debug: print '  exception in unregister', (sys and sys.exc_info() or None)
     
     def _get_sdp_streams(self): # returns a list of audio and video streams.
         audio, video = SDP.media(media='audio'), SDP.media(media='video')
@@ -551,7 +559,7 @@ class Context(object):
                 else: self.client.call('rejected', 'Already in an active or pending call')
             else: self.client.call('rejected', 'Registration required before making a call')
         except:
-            if _debug: print 'exception in invite', (sys and sys.exc_info() or None)
+            if _debug: print '  exception in invite', (sys and sys.exc_info() or None)
             self.client.call('rejected', 'Internal server error')
 
     def rtmp_accept(self):
@@ -571,7 +579,7 @@ class Context(object):
             else:
                 if _debug: print '  no incoming call. ignored.'
         except:
-            if _debug: print 'exception in rtmp_accept', (sys and sys.exc_info()) 
+            if _debug: print '  exception in rtmp_accept', (sys and sys.exc_info()) 
             reason = '500 Internat Server Exception'
         if reason:
             if media: media.close()
@@ -580,15 +588,18 @@ class Context(object):
             pass
             
     def rtmp_reject(self, reason='Decline'):
-        if _debug: print 'rtmp-accept'
-        if self.user is not None and self.incoming is not None:
-            yield self.user.reject(self.incoming, reason)
-            self.incoming = None # no more pending incoming call
-        elif _debug: print '  no incoming call. ignored'
+        try:
+            if _debug: print 'rtmp-accept'
+            if self.user is not None and self.incoming is not None:
+                yield self.user.reject(self.incoming, reason)
+                self.incoming = None # no more pending incoming call
+            elif _debug: print '  no incoming call. ignored'
+        except:
+            if _debug: print '  exception in reject', (sys and sys.exc_info() or None)
         
     def rtmp_bye(self):
-        if _debug: print 'rtmp-bye'
         try:
+            if _debug: print 'rtmp-bye'
             if self.session is None and self.outgoing is not None: # pending outgoing invite
                 if _debug: print '  cancel outbound invite'
                 self.outgoing.close()
@@ -598,15 +609,21 @@ class Context(object):
             if _debug: print '  exception in bye', (sys and sys.exc_info() or None)
 
     def sip_invite(self, dest):
-        self.client.call('invited', str(dest), str(self.user.address))
+        try: self.client.call('invited', str(dest), str(self.user.address))
+        except:
+            if _debug: print '  exception in sip_invite', (sys and sys.exc_info() or None)
         yield
         
     def sip_cancel(self, dest):
-        self.client.call('cancelled', str(dest), str(self.user.address))
+        try: self.client.call('cancelled', str(dest), str(self.user.address))
+        except:
+            if _debug: print '  exception in sip_cancel', (sys and sys.exc_info() or None)
         yield
         
     def sip_bye(self):
-        self.client.call('byed')
+        try: self.client.call('byed')
+        except:
+            if _debug: print '  exception in sip_bye', (sys and sys.exc_info() or None)
         yield
         
     def _incominghandler(self): # Handle incoming SIP messages
@@ -627,11 +644,14 @@ class Context(object):
         self._gin = None
             
     def _sessionhandler(self): # Handle SIP session messages
-        session = self.session
-        while True:
-            cmd, arg = (yield session.recv())
-            if cmd == 'close': multitask.add(self.sip_bye()); break # exit from session handler
-        yield self._cleanup()
+        try:
+            session = self.session
+            while True:
+                cmd, arg = (yield session.recv())
+                if cmd == 'close': multitask.add(self.sip_bye()); break # exit from session handler
+            yield self._cleanup()
+        except:
+            if _debug: print 'exception in sessionhandler', (sys and sys.exc_info() or None)
         self._gss = None
         if _debug: print 'sessionhandler exiting'
         
@@ -664,27 +684,33 @@ class Context(object):
         yield
 
     def rtmp_data(self, stream, message): # handle media data message received from RTMP
-        #if _debug: print 'RTMP pt=%x len=%d'%(message.header.type, message.size)
-        if self.session and self.session.media and self.session.media.hasType('video'): # the remote SIP user supports our video format. send FLV video to remote in RTP.
-            self.video_rtmp2rtp(message)
-        else: # the remote SIP user doesn't support our video. send audio (Speex) in RTP
-            if message.header.type == 0x08 and message.size > 1: # audio packet of speex codec
-                #if _debug: print '  Audio is %r'%(message.data[0])
-                if self.session and self.session.media:
-                    self._ts += (self._audio.rate * 20 / 1000) # assume 20 ms data at 16000 Hz
-                    self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=self._audio)
+        try:
+            #if _debug: print 'RTMP pt=%x len=%d'%(message.header.type, message.size)
+            if self.session and self.session.media and self.session.media.hasType('video'): # the remote SIP user supports our video format. send FLV video to remote in RTP.
+                self.video_rtmp2rtp(message)
+            else: # the remote SIP user doesn't support our video. send audio (Speex) in RTP
+                if message.header.type == 0x08 and message.size > 1: # audio packet of speex codec
+                    #if _debug: print '  Audio is %r'%(message.data[0])
+                    if self.session and self.session.media:
+                        self._ts += (self._audio.rate * 20 / 1000) # assume 20 ms data at 16000 Hz
+                        self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=self._audio)
+        except:
+            if _debug: print '  exception in rtmp_data', (sys and sys.exc_info() or None)
         yield
 
     def rtmp_sendDTMF(self, digit):
-        if _debug: print 'rtmp-sendDTMF', digit
-        if len(digit) != 1:
-            if _debug: print '  only single digit DTMF is supported in sendDTMF'
-        elif not self.session or not self.session.media or not self.session.media.hasType('audio'):
-            if _debug: print '  ignoring sendDTMF: not an active audio call'
-        else:
-            payload = repr(DTMF(key=digit, end=True))
-            if _debug: print '  sending payload %r'%(payload,)
-            self.session.media.send(payload=payload, ts=self._ts, marker=False, fmt=self._touchtone)
+        try:
+            if _debug: print 'rtmp-sendDTMF', digit
+            if len(digit) != 1:
+                if _debug: print '  only single digit DTMF is supported in sendDTMF'
+            elif not self.session or not self.session.media or not self.session.media.hasType('audio'):
+                if _debug: print '  ignoring sendDTMF: not an active audio call'
+            else:
+                payload = repr(DTMF(key=digit, end=True))
+                if _debug: print '  sending payload %r'%(payload,)
+                self.session.media.send(payload=payload, ts=self._ts, marker=False, fmt=self._touchtone)
+        except:
+            if _debug: print '  exception in rtmp_sendDTMF', (sys and sys.exc_info() or None)
         yield
             
 
