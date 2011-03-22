@@ -1,4 +1,4 @@
-# Copyright (c) 2009, Mamta Singh. All rights reserved. see README for details.
+# Copyright (c) 2009-2011, Kundan Singh. All rights reserved. see README for details.
 # WARNING:This is currently incomplete. Especially the quality is poor, and HTTP is not yet implemented.
 
 '''
@@ -33,7 +33,7 @@ To understand the code, please see the high level method copy() and open(). Usua
 want to work on individual resource objects, use the open method and the returned resource object.
 '''
 
-import sys, traceback, time, urlparse, socket, multitask
+import os, sys, traceback, time, urlparse, socket, multitask
 from rtmp import Protocol, Message, Command, ConnectionClosed, Stream, FLV
 from amf import Object
 
@@ -101,7 +101,7 @@ class NetConnection(object):
         self.client = self.path = None
         self.data = Object(videoCodecs=252.0, audioCodecs=3191.0, flashVer='WIN 10,0,32,18', swfUrl=None, videoFunction=1.0, capabilities=15.0, fpad=False, objectEncoding=0.0)
     
-    def connect(self, url, timeout=None): # Generator to connect to the given url, and return True or False.
+    def connect(self, url, timeout=None, *args): # Generator to connect to the given url, and return True or False.
         if url[:7].lower() != 'rtmp://': raise ValueError('Invalid URL scheme. Must be rtmp://')
         path, ignore, ignore = url[7:].partition('?')
         hostport, ignore, path = path.partition('/')
@@ -113,12 +113,18 @@ class NetConnection(object):
         except: raise StopIteration, False
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # make it non-block
         self.client = yield Client(sock).handshake()
-        result, fault = yield self.client.send(Command(name='connect', cmdData=self.data), timeout=timeout)
+        result, fault = yield self.client.send(Command(name='connect', cmdData=self.data, args=args), timeout=timeout)
         if _debug: print 'NetConnection.connect result=', result, 'fault=', fault
         raise StopIteration, (result is not None)
     
     def close(self): # disconnect the connection with the server
-        if self.client is not None: yield self.client.connectionClosed()
+        if self.client is not None: 
+            yield self.client.connectionClosed()
+            # TODO: for some reason, the socket is not closed with multitask. Need to explicitly close the file descriptor.
+            try: os.close(self.client.stream.sock.fileno())
+            except: pass # ignore the error
+            self.client = None
+            
 
 class NetStream(object):
     '''This is similar to the NetStream class of ActionScript 3.0, and represents a client-server media stream for play or publish. The application
@@ -224,6 +230,7 @@ class RTMPWriter(Resource): # Connect to RTMP URL and publish the stream identif
         
     def put(self, item):
         if self.ns is not None: self.ns.stream.send(item)
+        yield # yield is needed since there is no other blocking operation
             
 class HTTPReader(Resource): # Fetch a FLV file from a web URL. TODO: implement this
     def open(self, url): raise StopIteration, False
@@ -238,6 +245,7 @@ class FLVReader(Resource): # Read a local FLV file, one message at a time, and i
         
     def open(self, url):
         if _debug: print 'FLVReader.open', url
+        yield # needed at least one yield in a generator
         self.url, u = url, urlparse.urlparse(url, 'file')
         self.fp = FLV().open(u.path)
         if self.fp:
@@ -248,6 +256,7 @@ class FLVReader(Resource): # Read a local FLV file, one message at a time, and i
     def close(self):
         if self.fp: self.fp.close(); self.fp = None
         if self._gen is not None: self._gen.close()
+        yield # yield is needed since there is no other blocking operation
 
     def send(self, msg):
         def sendInternal(self, msg): yield self.queue.put(msg)
@@ -303,6 +312,57 @@ def copy(src, dest):
     yield s.close()
     yield d.close()
     raise Result, result
+    
+
+def _copy_loop(filename, ns, enableAudio, enableVideo):
+    '''Local function used by connect() to stream from file to NetStream in a loop.'''
+    reader = yield FLVReader().open(filename)
+    if not reader: raise StopIteration('Failed to open file %r'%(filename,))
+    try:
+        while True:
+            msg = yield reader.get()
+            if not msg: 
+                if _debug: print 'Reached end, re-opening the file', filename
+                reader.close()
+                reader = yield FLVReader().open(filename)
+            elif enableAudio and msg.type == Message.AUDIO or enableVideo and msg.type == Message.VIDEO:
+                yield ns.stream.send(msg)
+    except Result, e:
+        if _debug: print name, 'result=', e
+    except GeneratorExit: pass
+    except: 
+        if _debug: traceback.print_exc()
+    reader.close()
+
+def connect(url, params=None, timeout=10, duration=60, publishStream='publish', playStream='play', publishFile=None, enableAudio=True, enableVideo=True):
+    '''Connect to the RTMP url with supplied parameters in NetConnection.connect. Once connected it publishes and plays the supplied
+    streams, and if publish file is supplied uses that to publish to the stream. The connection is kept up for the duration seconds.
+    Any attempt to connect, open streams or file is with supplied timeout. It returns an error string on failure or None on success.
+    Example to publish audio-only with three parameters from 'file1.flv':
+       result = yield connect("rtmp://server/app", ['str-param', None, 20], publish_file='file1.flv', enableVideo=False) 
+    '''
+    if _debug: print 'connect url=%r params=%r timeout=%r duration=%r publishStream=%r playStream=%r publishFile=%r enableAudio=%r enableVideo=%r'%(url, params, timeout, duration, publishStream, playStream, publishFile, enableAudio, enableVideo)
+
+    nc = NetConnection()
+    result = yield nc.connect(url, timeout, *params)
+    if not result: raise StopIteration, 'Failed to connect %r'%(url,)
+        
+    ns1 = yield NetStream().create(nc, timeout=timeout)
+    result = yield ns1.publish(publishStream, timeout=timeout)
+    if not result: yield nc.close(); raise StopIteration, 'Failed to create publish stream %r'%(publishStream,)
+
+    ns2 = yield NetStream().create(nc, timeout=timeout)
+    result = yield ns2.play(playStream, timeout=timeout)
+    if not result: yield nc.close(); raise StopIteration, 'Failed to create play stream %r'%(playStream,)
+        
+    if publishFile: gen = _copy_loop(publishFile, ns1, enableAudio, enableVideo); multitask.add(gen)
+    yield multitask.sleep(duration)
+    
+    if _debug: print 'connect closing'
+    if publishFile: gen.close()
+    yield nc.close()
+    raise StopIteration(None)
+    
     
 #--------------------------------
 # Module's main
