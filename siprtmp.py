@@ -589,7 +589,7 @@ class Context(object):
             
     def rtmp_reject(self, reason='Decline'):
         try:
-            if _debug: print 'rtmp-accept'
+            if _debug: print 'rtmp-reject'
             if self.user is not None and self.incoming is not None:
                 yield self.user.reject(self.incoming, reason)
                 self.incoming = None # no more pending incoming call
@@ -609,19 +609,25 @@ class Context(object):
             if _debug: print '  exception in bye', (sys and sys.exc_info() or None)
 
     def sip_invite(self, dest):
-        try: self.client.call('invited', str(dest), str(self.user.address))
+        try:
+            if _debug: print 'sip-invite' 
+            self.client.call('invited', str(dest), str(self.user.address))
         except:
             if _debug: print '  exception in sip_invite', (sys and sys.exc_info() or None)
         yield
         
     def sip_cancel(self, dest):
-        try: self.client.call('cancelled', str(dest), str(self.user.address))
+        try: 
+            if _debug: print 'sip-cancel' 
+            self.client.call('cancelled', str(dest), str(self.user.address))
         except:
             if _debug: print '  exception in sip_cancel', (sys and sys.exc_info() or None)
         yield
         
     def sip_bye(self):
-        try: self.client.call('byed')
+        try: 
+            if _debug: print 'sip-bye' 
+            self.client.call('byed')
         except:
             if _debug: print '  exception in sip_bye', (sys and sys.exc_info() or None)
         yield
