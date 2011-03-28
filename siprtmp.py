@@ -493,7 +493,7 @@ class Context(object):
         try: sock.bind((agent.siphost, port)); port = sock.getsockname()[1] 
         except: 
             if _debug: print '  exception in register', (sys and sys.exc_info() or None)
-            self.client.rejectConnection(reason='Cannot bind socket port')
+            yield self.client.rejectConnection(reason='Cannot bind socket port')
             raise StopIteration(None)
         #self.ports[name] = sock.getsockname()[1] # store the port number
         # TODO: storing and keeping the persistent port per user doesn't work well if the app is re-loaded in brief interval.
@@ -505,14 +505,14 @@ class Context(object):
                 result, reason = yield user.bind(addr, refresh=True)
                 if _debug: print '  registration returned', result, reason
                 if result == 'failed': 
-                    self.client.rejectConnection(reason=reason)
+                    yield self.client.rejectConnection(reason=reason)
                     raise StopIteration(None)
                 self._gin = self._incominghandler(); multitask.add(self._gin) # incoming SIP messages handler
             if _debug: print '  register successful'
-            self.client.accept()
+            yield self.client.accept()
         except: 
             if _debug: print '  exception in register', (sys and sys.exc_info() or None)
-            self.client.rejectConnection(reason=sys and str(sys.exc_info()[1]) or 'Server Error')
+            yield self.client.rejectConnection(reason=sys and str(sys.exc_info()[1]) or 'Server Error')
             raise StopIteration(None)
         
     def rtmp_unregister(self):
@@ -552,15 +552,15 @@ class Context(object):
                     if session: # call connected
                         media.setRemote(session.yoursdp); session.media = media; self.session = session
                         self._gss = self._sessionhandler(); multitask.add(self._gss) # receive more requests from SIP
-                        self.client.call('accepted')
+                        yield self.client.call('accepted')
                     else: # connection failed, close media socket
                         media.close()
-                        self.client.call('rejected', reason)
-                else: self.client.call('rejected', 'Already in an active or pending call')
-            else: self.client.call('rejected', 'Registration required before making a call')
+                        yield self.client.call('rejected', reason)
+                else: yield self.client.call('rejected', 'Already in an active or pending call')
+            else: yield self.client.call('rejected', 'Registration required before making a call')
         except:
             if _debug: print '  exception in invite', (sys and sys.exc_info() or None)
-            self.client.call('rejected', 'Internal server error')
+            yield self.client.call('rejected', 'Internal server error')
 
     def rtmp_accept(self):
         if _debug: print 'rtmp-accept'
@@ -574,7 +574,7 @@ class Context(object):
                     if session: # call connected
                         session.media = media; self.session = session
                         self._gss = self._sessionhandler(); multitask.add(self._gss) # receive more requests from SIP
-                        self.client.call('accepted')
+                        yield self.client.call('accepted')
                     elif not reason: reason = '500 Internal Server Error in Accepting'
             else:
                 if _debug: print '  no incoming call. ignored.'
@@ -584,7 +584,7 @@ class Context(object):
         if reason:
             if media: media.close()
             if self.user: yield self.user.reject(incoming, reason) # TODO: a better way would be to reject in _incominghandler
-            if self.client: self.client.call('byed')
+            if self.client: yield self.client.call('byed')
             pass
             
     def rtmp_reject(self, reason='Decline'):
@@ -611,7 +611,7 @@ class Context(object):
     def sip_invite(self, dest):
         try:
             if _debug: print 'sip-invite' 
-            self.client.call('invited', str(dest), str(self.user.address))
+            yield self.client.call('invited', str(dest), str(self.user.address))
         except:
             if _debug: print '  exception in sip_invite', (sys and sys.exc_info() or None)
         yield
@@ -619,7 +619,7 @@ class Context(object):
     def sip_cancel(self, dest):
         try: 
             if _debug: print 'sip-cancel' 
-            self.client.call('cancelled', str(dest), str(self.user.address))
+            yield self.client.call('cancelled', str(dest), str(self.user.address))
         except:
             if _debug: print '  exception in sip_cancel', (sys and sys.exc_info() or None)
         yield
@@ -627,7 +627,7 @@ class Context(object):
     def sip_bye(self):
         try: 
             if _debug: print 'sip-bye' 
-            self.client.call('byed')
+            yield self.client.call('byed')
         except:
             if _debug: print '  exception in sip_bye', (sys and sys.exc_info() or None)
         yield
@@ -676,7 +676,7 @@ class Context(object):
             p = RTP(data) if not isinstance(data, RTP) else data
             #if _debug: print 'RTP  pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
             if str(fmt.name).lower() == str(self._video.name).lower():  # this is a video (FLV) packet, just assemble and return to rtmp
-                self.video_rtp2rtmp(p)
+                yield self.video_rtp2rtmp(p)
             else: # this is a audio (Speex) packet. Build RTMP header and return to rtmp
                 payload = '\xb2' + p.payload
                 t = (p.ts / (self._audio.rate / 1000)) # assume 20 ms packet at 16000 Hz, one 16 ts is 1 ms (t)
@@ -684,7 +684,7 @@ class Context(object):
                     header = Header(time=t, size=len(payload), type=0x08, streamId=self.play_stream.id)
                     m = Message(header, payload)
                     #if _debug: print '  RTMP pt=%x len=%d hdr=%r'%(m.header.type, m.size, m.header)
-                    self.play_stream.send(m)
+                    yield self.play_stream.send(m)
         except (ValueError, AttributeError), E:
             if _debug: print 'Invalid RTP parse error', E
         yield
@@ -744,10 +744,11 @@ class Context(object):
     def video_rtp2rtmp(self, packet): # convert given RTP packet to RTMP message and play to the rtmp side.
         '''The parsing of chunks from RTP payload is reverse of creating chunks.'''
         try:
+            yield
             magic, payload = packet.payload[:4], packet.payload[4:]
             if magic != 'RTMP':
                 if _debug: print 'ignoring non-RTMP packet in received video'
-                return
+                raise StopIteration, None
             seq, cseq = unpack('>Ih', payload[:6])
             # if _debug: print 'rtp2rtmp received seq=%d cseq=%d len=%d'%(seq, cseq, len(payload))
             if cseq == 0: # first packet in the chunks. Initialize the rx state.
@@ -757,28 +758,28 @@ class Context(object):
             else:
                 if seq != self._rxseq or len(self._rxchunks) == 0:
                     if _debug: print 'probably missed a begin packet'
-                    return
+                    raise StopIteration, None
                 if cseq != len(self._rxchunks):
                     if _debug: print 'probably out of order packet'
-                    return
+                    raise StopIteration, None
                 self._rxchunks.append(payload[6:])
             got = sum(map(lambda x: len(x), self._rxchunks), 0)
             if got < self._rxlen: return # not all chunk is received yet
             if got > self._rxlen:
                 if _debug: print 'unexpected error, got more than expected %d > %d'%(got, self._rxlen)
-                return
+                raise StopIteration, None
             if self._rxlen < 12:
                 if _debug: print 'received data is too small %d'%(self._rxlen)
-                return
+                raise StopIteration, None
             
             data, message = ''.join(self._rxchunks), Message()
             self._rxlen, self._rxchunks[:] = 0, []  # clear the state now that we have full packet
             message.type, msglen, message.time = unpack('>III', data[0:12]); message.data = data[12:]
             if msglen != len(message.data):
                 if _debug: print 'invalid message len %d != %d'%(msglen, len(message.data))
-                return
+                raise StopIteration, None
 
-            if self.play_stream is not None: self.play_stream.send(message)
+            if self.play_stream is not None: yield self.play_stream.send(message)
         except:
             if _debug: print 'exception in rtp2rtmp', (sys and sys.exc_info())
 

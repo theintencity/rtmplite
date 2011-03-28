@@ -82,7 +82,7 @@ class SockStream(object):
     def read(self, count):
         try:
             while True:
-                if len(self.buffer) >= count: # do not have data in buffer
+                if len(self.buffer) >= count: # do have enough data in buffer
                     data, self.buffer = self.buffer[:count], self.buffer[count:]
                     raise StopIteration(data)
                 if _debug: print 'socket.read[%d] calling recv()'%(count,)
@@ -169,7 +169,7 @@ class Protocol(object):
         self.readChunkSize = self.writeChunkSize = Protocol.DEFAULT_CHUNK_SIZE
         self.readWinSize0, self.readWinSize, self.writeWinSize0, self.writeWinSize = 0L, self.READ_WIN_SIZE, 0L, self.WRITE_WIN_SIZE
         self.nextChannelId = Protocol.PROTOCOL_CHANNEL_ID + 1
-        self.writeLock, self.writeQueue = threading.Lock(), Queue.Queue()
+        self.writeLock, self.writeQueue = threading.Lock(), multitask.Queue()
             
     def messageReceived(self, msg): # override in subclass
         yield
@@ -179,7 +179,7 @@ class Protocol(object):
             self.writeWinSize0 = struct.unpack('>L', msg.data)[0]
 #            response = Message()
 #            response.type, response.data = msg.type, msg.data
-#            self.writeMessage(response)
+#            yield self.writeMessage(response)
         elif msg.type == Message.CHUNK_SIZE:
             self.readChunkSize = struct.unpack('>L', msg.data)[0]
         elif msg.type == Message.WIN_ACK_SIZE:
@@ -201,7 +201,7 @@ class Protocol(object):
             yield self.connectionClosed()
                     
     def writeMessage(self, message):
-        self.writeQueue.put(message)
+        yield self.writeQueue.put(message)
             
     def parseCrossDomainPolicyRequest(self):
         # read the request
@@ -290,7 +290,7 @@ class Protocol(object):
                     self.readWinSize0 = self.stream.bytesRead
                     ack = Message()
                     ack.type, ack.data = Message.ACK, struct.pack('>L', self.readWinSize0)
-                    self.writeMessage(ack)
+                    yield self.writeMessage(ack)
                     
             if len(data) < header.size: # we don't have all data
                 self.incompletePackets[channel] = data
@@ -320,8 +320,9 @@ class Protocol(object):
     def write(self):
         '''Writes messages to stream'''
         while True:
-            while self.writeQueue.empty(): (yield multitask.sleep(0.01))
-            message = self.writeQueue.get() # TODO this should be used using multitask.Queue and remove previous wait.
+#            while self.writeQueue.empty(): (yield multitask.sleep(0.01))
+#            message = self.writeQueue.get() # TODO this should be used using multitask.Queue and remove previous wait.
+            message = yield self.writeQueue.get() # TODO this should be used using multitask.Queue and remove previous wait.
             if _debug: print 'Protocol.write msg=', message
             if message is None: 
                 try: self.stream.close()  # just in case TCP socket is not closed, close it.
@@ -524,7 +525,7 @@ class FLV(object):
                 bytes = self.fp.read(11)
                 if len(bytes) == 0:
                     response = Command(name='onStatus', id=stream.id, args=[amf.Object(level='status',code='NetStream.Play.Stop', description='File ended', details=None)])
-                    stream.send(response.toMessage())
+                    yield stream.send(response.toMessage())
                     break
                 type, len0, len1, ts0, ts1, ts2, sid0, sid1 = struct.unpack('>BBHBHBBH', bytes)
                 length = (len0 << 16) | len1; ts = (ts0 << 16) | (ts1 & 0x0ffff) | (ts2 << 24)
@@ -542,7 +543,7 @@ class FLV(object):
                     name = amfReader.read()
                     obj = amfReader.read()
                     if _debug: print 'FLV.read()', name, repr(obj)
-                stream.send(msg)
+                yield stream.send(msg)
                 if ts > self.tsp: 
                     diff, self.tsp = ts - self.tsp, ts
                     if _debug: print 'FLV.read() sleep', diff
@@ -603,7 +604,7 @@ class Stream(object):
             msg = msg.toMessage()
         msg.streamId = self.id
         # if _debug: print self,'send'
-        if self.client is not None: self.client.writeMessage(msg)
+        if self.client is not None: yield self.client.writeMessage(msg)
         
 class Client(Protocol):
     '''The client object represents a single connected client to the server.'''
@@ -621,7 +622,7 @@ class Client(Protocol):
     def connectionClosed(self):
         '''Called when the client drops the connection'''
         if _debug: 'Client.connectionClosed'
-        self.writeMessage(None)
+        yield self.writeMessage(None)
         yield self.queue.put((None,None))
             
     def messageReceived(self, msg):
@@ -635,7 +636,7 @@ class Client(Protocol):
             elif cmd.name == 'createStream':
                 response = Command(name='_result', id=cmd.id, type=self.rpc, \
                                    args=[self._nextStreamId])
-                self.writeMessage(response.toMessage())
+                yield self.writeMessage(response.toMessage())
                 
                 stream = Stream(self) # create a stream object
                 stream.id = self._nextStreamId
@@ -670,7 +671,7 @@ class Client(Protocol):
         response.setArg(amf.Object(level='status', code='NetConnection.Connect.Success',
                         description='Connection succeeded.', fmsVer='rtmplite/7,0', details=None,
                         objectEncoding=self.objectEncoding))
-        self.writeMessage(response.toMessage())
+        yield self.writeMessage(response.toMessage())
             
     def rejectConnection(self, reason=''):
         '''Method to reject an incoming client.'''
@@ -678,7 +679,7 @@ class Client(Protocol):
         response.id, response.name, response.type = 1, '_error', self.rpc
         response.setArg(amf.Object(level='status', code='NetConnection.Connect.Rejected',
                         description=reason, fmsVer='rtmplite/7,0', details=None))
-        self.writeMessage(response.toMessage())
+        yield self.writeMessage(response.toMessage())
             
     def redirectConnection(self, url, reason='Connection failed'):
         '''Method to redirect an incoming client to the given url.'''
@@ -687,7 +688,7 @@ class Client(Protocol):
         extra = dict(code=302, redirect=url)
         response.setArg(amf.Object(level='status', code='NetConnection.Connect.Rejected',
                         description=reason, fmsVer='rtmplite/7,0', details=None, ex=extra))
-        self.writeMessage(response.toMessage())
+        yield self.writeMessage(response.toMessage())
 
     def call(self, method, *args):
         '''Call a (callback) method on the client.'''
@@ -696,7 +697,7 @@ class Client(Protocol):
         cmd.args, cmd.cmdData = args, None
         self._nextCallId += 1
         if _debug: print 'Client.call method=', method, 'args=', args, ' msg=', cmd.toMessage()
-        self.writeMessage(cmd.toMessage())
+        yield self.writeMessage(cmd.toMessage())
             
     def createStream(self):
         ''' Create a stream on the server side'''
@@ -835,7 +836,7 @@ class FlashServer(object):
                         
                         win_ack = Message()
                         win_ack.type, win_ack.data = Message.WIN_ACK_SIZE, struct.pack('>L', client.writeWinSize)
-                        client.writeMessage(win_ack)
+                        yield client.writeMessage(win_ack)
                         
 #                        set_peer_bw = Message()
 #                        set_peer_bw.type, set_peer_bw.data = Message.SET_PEER_BW, struct.pack('>LB', client.writeWinSize, 1)
@@ -930,7 +931,7 @@ class FlashServer(object):
                 res.id, res.name, res.type = cmd.id, code, client.rpc
                 res.args, res.cmdData = args, None
                 if _debug: print 'Client.call method=', code, 'args=', args, ' msg=', res.toMessage()
-                client.writeMessage(res.toMessage())
+                yield client.writeMessage(res.toMessage())
                 # TODO return result to caller
         yield
         

@@ -954,7 +954,8 @@ class TaskManager(object):
             self._handle_timeouts(self._fix_run_timeout(timeout))
 
         # Run all tasks currently in the queue
-        for dummy in xrange(len(self._queue)):
+        #for dummy in xrange(len(self._queue)):
+        while len(self._queue) > 0:
             task, input, exc_info = self._queue.popleft()
             try:
                 if exc_info:

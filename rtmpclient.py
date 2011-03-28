@@ -64,7 +64,7 @@ class Client(Protocol):
         
     def connectionClosed(self): # called by base class framework when server drops the TCP connections
         if _debug: 'Client.connectionClosed'
-        self.writeMessage(None)
+        yield self.writeMessage(None)
         for stream in self.streams.values(): yield stream.queue.put(None)
         yield self.queue.put(None)
         self.streams.clear()
@@ -74,7 +74,7 @@ class Client(Protocol):
         cmd.id, cmd.type = float(self._nextCallId), (self.objectEncoding == 0.0 and Message.RPC or Message.RPC3)
         callId = self._nextCallId; self._nextCallId += 1
         if _debug: print 'Client.send cmd=', cmd, 'name=', cmd.name, 'args=', cmd.args, ' msg=', cmd.toMessage()
-        self.writeMessage(cmd.toMessage())
+        yield self.writeMessage(cmd.toMessage())
         try: # wait for response if received within timeout.
             res = yield self.queue.get(timeout=timeout, criteria=lambda x: x is None or x.id == callId)
             result = res if res is not None and res.name == '_result' else None
@@ -144,19 +144,19 @@ class NetStream(object):
         else: raise StopIteration, None
         
     def publish(self, name, timeout=None):
-        self.stream.send(Command(name='publish', args=[name]))
+        yield self.stream.send(Command(name='publish', args=[name]))
         msg = yield self.stream.recv()
         if _debug: print 'publish result=', msg
         raise StopIteration, True
     
     def play(self, name, timeout=None):
-        self.stream.send(Command(name='play', args=[name]))
+        yield self.stream.send(Command(name='play', args=[name]))
         msg = yield self.stream.recv()
         if _debug: print 'play response=', msg
         raise StopIteration, True
     
     def close(self):
-        self.stream.send(Command(name='closeStream'))
+        yield self.stream.send(Command(name='closeStream'))
         msg = yield self.stream.recv()
         if _debug: print 'closeStream response=', msg
 
@@ -229,7 +229,7 @@ class RTMPWriter(Resource): # Connect to RTMP URL and publish the stream identif
         if self.nc is not None: yield self.nc.close(); self.nc = None
         
     def put(self, item):
-        if self.ns is not None: self.ns.stream.send(item)
+        if self.ns is not None: yield self.ns.stream.send(item)
         yield # yield is needed since there is no other blocking operation
             
 class HTTPReader(Resource): # Fetch a FLV file from a web URL. TODO: implement this
