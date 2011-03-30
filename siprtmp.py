@@ -460,6 +460,7 @@ try:
     from std.rfc2396 import Address
     from std.rfc4566 import SDP, attrs as format
     from std.rfc2833 import DTMF
+    from std.kutil import setlocaladdr, getlocaladdr
 except:
     print 'Please include p2p-sip src directory in your PYTHONPATH'
     exit(1)
@@ -490,7 +491,7 @@ class Context(object):
         sock = socket.socket(type=socket.SOCK_DGRAM) # signaling socket for SIP
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         port = self.app._ports.get(aor, 0)
-        try: sock.bind((agent.siphost, port)); port = sock.getsockname()[1] 
+        try: sock.bind((agent.int_ip, port)); port = sock.getsockname()[1] 
         except: 
             if _debug: print '  exception in register', (sys and sys.exc_info() or None)
             yield self.client.rejectConnection(reason='Cannot bind socket port')
@@ -538,13 +539,14 @@ class Context(object):
         return [audio, video]
     
     def rtmp_invite(self, dest):
+        global agent
         try:
             if _debug: print 'rtmp-invite', dest
             if self.user: # already a registered user exists
                 if not self.session: # not already in a session, so create one
                     try: dest = Address(dest) # first try the default scheme supplied by application
                     except: dest = Address(self.user.address.uri.scheme + ':' + dest) # otherwise scheme is picked from registered URI
-                    media = MediaSession(app=self, streams=self._get_sdp_streams())
+                    media = MediaSession(app=self, streams=self._get_sdp_streams(), listen_ip=agent.int_ip)
                     self.outgoing = self.user.connect(dest, sdp=media.mysdp)
                     session, reason = yield self.outgoing
                     self.outgoing = None # because the generator returned, and no more pending outgoing call
@@ -563,11 +565,12 @@ class Context(object):
             yield self.client.call('rejected', 'Internal server error')
 
     def rtmp_accept(self):
+        global agent
         if _debug: print 'rtmp-accept'
         incoming = self.incoming; self.incoming = reason = media = None # clear self.incoming, and store value in incoming
         try:
             if self.user is not None and incoming is not None:
-                media = MediaSession(app=self, streams=self._get_sdp_streams(), request=incoming[1].request) # create local media session
+                media = MediaSession(app=self, streams=self._get_sdp_streams(), request=incoming[1].request, listen_ip=agent.int_ip) # create local media session
                 if media.mysdp is None: reason = '488 Incompatible SDP'
                 else:
                     session, reason = yield self.user.accept(incoming, sdp=media.mysdp)
@@ -829,7 +832,8 @@ if __name__ == '__main__':
     parser.add_option('-i', '--host',    dest='host',    default='0.0.0.0', help="listening IP address for RTMP. Default '0.0.0.0'")
     parser.add_option('-p', '--port',    dest='port',    default=1935, type="int", help='listening port number for RTMP. Default 1935')
     parser.add_option('-r', '--root',    dest='root',    default='./',       help="document root directory. Default './'")
-    parser.add_option('-s', '--siphost', dest='siphost', default='0.0.0.0', help="listening IP address for SIP. Default '0.0.0.0'")
+    parser.add_option('-l', '--int-ip',  dest='int_ip',  default='0.0.0.0', help="listening IP address for SIP and RTP. Default '0.0.0.0'")
+    parser.add_option('-e', '--ext-ip',  dest='ext_ip',  default=None,      help='IP address to advertise in SIP/SDP. Default is to use "--int-ip" or any local interface')
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
     (options, args) = parser.parse_args()
     
@@ -838,10 +842,14 @@ if __name__ == '__main__':
     app.voip._debug = options.verbose
     #std.rfc3550._debug = options.verbose
     _debug = options.verbose
+    
+    if options.ext_ip: setlocaladdr(options.ext_ip)
+    elif options.int_ip != '0.0.0.0': setlocaladdr(options.int_ip)
+    
     try:
         agent = FlashServer()
         agent.apps['sip'] = Gateway
-        agent.root, agent.siphost = options.root, options.siphost
+        agent.root, agent.int_ip, agent.ext_ip = options.root, options.int_ip, options.ext_ip
         agent.start(options.host, options.port)
         if _debug: print time.asctime(), 'Flash Server Starts - %s:%d' % (options.host, options.port)
         while True:
