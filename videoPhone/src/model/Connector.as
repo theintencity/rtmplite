@@ -364,9 +364,14 @@ package model
 		public function invited(frm:String, to:String):void
 		{
 			trace("invited frm=" + frm);
-			this.targetURL = frm;
-			if (currentState == CONNECTED)
+			if (currentState == CONNECTED) {
+				this.targetURL = frm;
 				currentState = INBOUND;
+			}
+			else {
+				status = _("Missed call from {0}", frm);
+				reject('486 Busy Here');
+			}
 		}
 		
 		/**
@@ -416,6 +421,16 @@ package model
 			trace("byed");
 			if (currentState == ACTIVE)
 				currentState = CONNECTED;
+		}
+		
+		/**
+		 * When the remote side has put us on hold or unhold.
+		 */
+		public function holded(value:Boolean):void
+		{
+			trace("holded " + value);
+			if (currentState == ACTIVE)
+				this.status = value ? _("you are put on hold") : _("you are put off hold");
 		}
 		
 		/**
@@ -542,7 +557,6 @@ package model
 		/**
 		 * The method sends a DTMF digit to the remote party in an active call.
 		 * It invokes the "sendDTMF" RPC on the connection.
-		 * TODO: implement this method.
 		 */
 		public function sendDigit(str:String):void
 		{
@@ -550,6 +564,18 @@ package model
 				trace("sending digit " + str);
 				if (nc != null)
 					nc.call("sendDTMF", null, str);
+			}
+		}
+		
+		/**
+		 * The method invokes the "hold" RPC on the connection.
+		 */
+		public function sendHold(value:Boolean):void
+		{
+			if (currentState == ACTIVE) {
+				trace("sending hold " + value);
+				if (nc != null)
+					nc.call("hold", null, value);
 			}
 		}
 		

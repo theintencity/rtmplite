@@ -351,6 +351,8 @@ appears on top, and the video part which takes almost whole of the view.
     	<mx:State name="active">
     		<mx:AddChild>
     			<view:HBar addedToStage="autoHide(event.currentTarget)">
+					<view:BButton label="T" toolTip="{_('Toggle phone dialpad')}" alpha="0.5" click="adv.visible = !adv.visible"/>
+					<view:BButton label="H" toggle="true" toolTip="{_('Toggle hold mode')}" alpha="0.5" click="connector.sendHold(event.currentTarget.selected)"/>
 					<mx:Spacer width="100%"/>
     				<view:BButton label="O" toolTip="{_('Toggle local and remote video')}" alpha="0.5" click="video.next()"/>
     				<view:BButton label="+" toolTip="{_('Toggle full Screen')}" alpha="0.5" click="fullScreen()"/>
@@ -361,10 +363,10 @@ appears on top, and the video part which takes almost whole of the view.
     </mx:states>
 
 	<!--
-	There is a hidden 10x10 button on bottom-left corner of the View, which allows showing and
+	There is a button on top-left corner of the View, which allows showing and
 	hiding the dial-pad.
-	-->
     <mx:Canvas bottom="0" left="0" width="10" height="10" click="adv.visible = !adv.visible"/>
+	-->
     
     <!--
     The dialpad is shown based on the hidden button click as mentioned above.

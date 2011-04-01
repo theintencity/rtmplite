@@ -635,6 +635,14 @@ class Context(object):
             if _debug: print '  exception in sip_bye', (sys and sys.exc_info() or None)
         yield
         
+    def sip_hold(self, value):
+        try: 
+            if _debug: print 'sip-hold', value 
+            yield self.client.call('holded', value)
+        except:
+            if _debug: print '  exception in sip_hold', (sys and sys.exc_info() or None)
+        yield
+        
     def _incominghandler(self): # Handle incoming SIP messages
         try:
             user = self.user
@@ -658,6 +666,9 @@ class Context(object):
             while True:
                 cmd, arg = (yield session.recv())
                 if cmd == 'close': multitask.add(self.sip_bye()); break # exit from session handler
+                if cmd == 'change': # new SDP received from SIP side
+                    is_hold = bool(arg and arg['c'] and arg['c'].address == '0.0.0.0')
+                    multitask.add(self.sip_hold(is_hold))
             yield self._cleanup()
         except:
             if _debug: print 'exception in sessionhandler', (sys and sys.exc_info() or None)
@@ -722,7 +733,15 @@ class Context(object):
             if _debug: print '  exception in rtmp_sendDTMF', (sys and sys.exc_info() or None)
         yield
             
-
+    def rtmp_hold(self, value):
+        try:
+            if _debug: print 'rtmp-hold', value
+            self.session.hold(value)
+        except:
+            if _debug: print '  exception in rtmp_hold', (sys and sys.exc_info() or None)
+            traceback.print_exc()
+        yield
+                
     def video_rtmp2rtp(self, message): # convert given RTMP message to RTP packets and send to SIP side
         '''Formatting of RTMP media message to RTP payload and sending to RTP session.'''
         try:
@@ -837,10 +856,11 @@ if __name__ == '__main__':
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
     (options, args) = parser.parse_args()
     
-    import rtmp, app.voip, std.rfc3550
+    import rtmp, app.voip, std.rfc3550, std.rfc3261
     #rtmp._debug = options.verbose
     app.voip._debug = options.verbose
     #std.rfc3550._debug = options.verbose
+    #std.rfc3261._debug = options.verbose
     _debug = options.verbose
     
     if options.ext_ip: setlocaladdr(options.ext_ip)
