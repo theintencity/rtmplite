@@ -947,15 +947,15 @@ class TaskManager(object):
 
         """
 
-        if self.has_io_waits():
-            self._handle_io_waits(self._fix_run_timeout(timeout))
+        while self.has_io_waits():
+            if self._handle_io_waits(self._fix_run_timeout(timeout)) or self.has_runnable(): break
 
         if self.has_timeouts():
             self._handle_timeouts(self._fix_run_timeout(timeout))
 
         # Run all tasks currently in the queue
-        for dummy in xrange(len(self._queue)):
-        #while len(self._queue) > 0:
+        #for dummy in xrange(len(self._queue)):
+        while len(self._queue) > 0:
             task, input, exc_info = self._queue.popleft()
             try:
                 if exc_info:
@@ -1002,13 +1002,15 @@ class TaskManager(object):
                               timeout)
         except (TypeError, ValueError):
             self._remove_bad_file_descriptors()
+            return False
         except (select.error, IOError), err:
             if err[0] == errno.EINTR:
-                pass
+                return False
             elif ((err[0] == errno.EBADF) or
                   ((sys.platform == 'win32') and
                    (err[0] == 10038))):  # WSAENOTSOCK
                 self._remove_bad_file_descriptors()
+                return False
             else:
                 # Not an error we can handle, so die
                 raise
@@ -1024,6 +1026,7 @@ class TaskManager(object):
                                        self._exc_waits)
                 if fd._expires():
                     self._remove_timeout(fd)
+            return True
 
     def _remove_bad_file_descriptors(self):
         for fd in (self._read_waits | self._write_waits | self._exc_waits):
