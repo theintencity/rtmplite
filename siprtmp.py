@@ -670,6 +670,7 @@ class Context(object):
                     is_hold = bool(arg and arg['c'] and arg['c'].address == '0.0.0.0')
                     multitask.add(self.sip_hold(is_hold))
             yield self._cleanup()
+        except GeneratorExit: pass
         except:
             if _debug: print 'exception in sessionhandler', (sys and sys.exc_info() or None)
         self._gss = None
