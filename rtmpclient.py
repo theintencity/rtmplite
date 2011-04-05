@@ -143,8 +143,8 @@ class NetStream(object):
             raise StopIteration, self
         else: raise StopIteration, None
         
-    def publish(self, name, timeout=None):
-        yield self.stream.send(Command(name='publish', args=[name]))
+    def publish(self, name, mode='live', timeout=None):
+        yield self.stream.send(Command(name='publish', args=[name, mode]))
         msg = yield self.stream.recv()
         if _debug: print 'publish result=', msg
         raise StopIteration, True
