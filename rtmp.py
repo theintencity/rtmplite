@@ -479,7 +479,10 @@ class FLV(object):
         '''Close the underlying file for this object.'''
         if _debug: print 'closing flv file'
         if self.type == 'record' and self.tsr0 is not None: self.writeDuration((self.tsr - self.tsr0)/1000.0)
-        if self.fp is not None: self.fp.close(); self.fp = None
+        if self.fp is not None: 
+            try: self.fp.close()
+            except: pass
+            self.fp = None
     
     def delete(self, path):
         '''Delete the underlying file for this object.'''
@@ -551,8 +554,10 @@ class FLV(object):
         except StopIteration: pass
         except: 
             if _debug: print 'closing the reader', (sys and sys.exc_info() or None)
-            traceback.print_exc()
-            if self.fp is not None: self.fp.close(); self.fp = None
+            if self.fp is not None: 
+                try: self.fp.close()
+                except: pass
+                self.fp = None
             
     def seek(self, offset):
         '''For file reader, try seek to the given time. The offset is in millisec'''
