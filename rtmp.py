@@ -60,7 +60,7 @@ throw an exception and display the error message.
 
 '''
 
-import os, sys, time, struct, socket, traceback, multitask, amf, threading, Queue
+import os, sys, time, struct, socket, traceback, multitask, amf
 
 _debug = False
 
@@ -169,7 +169,7 @@ class Protocol(object):
         self.readChunkSize = self.writeChunkSize = Protocol.DEFAULT_CHUNK_SIZE
         self.readWinSize0, self.readWinSize, self.writeWinSize0, self.writeWinSize = 0L, self.READ_WIN_SIZE, 0L, self.WRITE_WIN_SIZE
         self.nextChannelId = Protocol.PROTOCOL_CHANNEL_ID + 1
-        self.writeLock, self.writeQueue = threading.Lock(), multitask.Queue()
+        self.writeQueue = multitask.Queue()
             
     def messageReceived(self, msg): # override in subclass
         yield

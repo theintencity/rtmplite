@@ -821,8 +821,8 @@ class Gateway(App):
         multitask.add(client.context.rtmp_unregister())
     def onCommand(self, client, cmd, *args):
         App.onCommand(self, client, cmd, args)
-        if hasattr(client.context, 'rtmp_'+cmd) and callable(eval('client.context.rtmp_%s'%(cmd))): 
-            exec 'multitask.add(client.context.rtmp_%s(*args))'%(cmd)
+        if hasattr(client.context, 'rtmp_%s'%(cmd,)) and callable(eval('client.context.rtmp_%s'%(cmd,))):
+            multitask.add(eval('client.context.rtmp_%s'%(cmd,))(*args))
         elif _debug: print 'invalid command', cmd
     def onPublish(self, client, stream):
         if _debug: print self.name, 'onPublish', client.path, stream.name
