@@ -1486,6 +1486,7 @@ if __name__ == '__main__':
     parser.add_option('-r', '--root',    dest='root',    default='./',       help="document root directory. Default './'")
     parser.add_option('-l', '--int-ip',  dest='int_ip',  default='0.0.0.0', help="listening IP address for SIP and RTP. Default '0.0.0.0'")
     parser.add_option('-e', '--ext-ip',  dest='ext_ip',  default=None,      help='IP address to advertise in SIP/SDP. Default is to use "--int-ip" or any local interface')
+    parser.add_option('-f', '--fork',    dest='fork',    default=1, type="int", help='Number of processes to use for concurrency. Default is 1.')
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
     (options, args) = parser.parse_args()
     
@@ -1499,6 +1500,10 @@ if __name__ == '__main__':
     try:
         if _debug: print time.asctime(), 'Fast SIP-RTMP Gateway Starts - %s:%d' % (options.host, options.port)
         server = FlashServer(options)
+        server.start()
+        for i in range(options.fork-1):
+            if not gevent.fork():
+                break
         server.serve_forever()
     except KeyboardInterrupt:
         pass
