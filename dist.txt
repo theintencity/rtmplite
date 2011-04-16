@@ -4,6 +4,7 @@ rtmplite/rtmpclient.py
 rtmplite/amf.py
 rtmplite/multitask.py
 rtmplite/siprtmp.py
+rtmplite/siprtmp_gevent.py
 rtmplite/testClient/bin-debug/AC_OETags.js
 rtmplite/testClient/bin-debug/history/history.css
 rtmplite/testClient/bin-debug/history/history.js
