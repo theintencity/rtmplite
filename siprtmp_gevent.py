@@ -1,9 +1,26 @@
 # Copyright (c) 2011, Kundan Singh. All rights reserved. see README for details.
+# CAUTION: This module is not well tested.
 
 '''
-This is high-performance re-write of rtmp.py and siprtmp.py without using multitask module.
-Supports SIP-RTMP gateway with multi-processing.
-Does not support file recording/playback, or multi-processing on RTMP conference.
+This is higher-performance re-write of rtmp.py and siprtmp.py. 
+Intead of the multitask module, it uses gevent project.
+It support SIP-RTMP gateway.
+It support RTMP streaming.
+BUT
+It does not support file recording/playback.
+
+Please see 
+http://p2p-sip.blogspot.com/2011/04/performance-of-siprtmp-multitask-vs.html
+for details on the performance improvement and measurement result.
+
+The conclusion of my measurement is as follows. The SIP-RTMP gateway software 
+using gevent takes about 2/3 the CPU cycles than using multitask, and the RTMP 
+server software using gevent takes about 1/2 the CPU cycles than using multitask. 
+After the improvements, on a dual-core 2.13 GHz CPU machine, a single audio 
+call going though gevent-based siprtmp using Speex audio codec at 8Hz sampling 
+takes about 3.1% CPU, and hence in theory can support about 60 active calls 
+in steady state. Another way to look at it is that the software requires CPU 
+cycles of about 66 MHz per audio call.
 '''
 
 try:
