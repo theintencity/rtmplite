@@ -1483,7 +1483,7 @@ if __name__ == '__main__':
     parser = OptionParser()
     parser.add_option('-i', '--host',    dest='host',    default='0.0.0.0', help="listening IP address for RTMP. Default '0.0.0.0'")
     parser.add_option('-p', '--port',    dest='port',    default=1935, type="int", help='listening port number for RTMP. Default 1935')
-    parser.add_option('-r', '--root',    dest='root',    default='./',       help="document root directory. Default './'")
+    parser.add_option('-r', '--root',    dest='root',    default='./',       help="document path prefix. Directory must end with /. Default './'")
     parser.add_option('-l', '--int-ip',  dest='int_ip',  default='0.0.0.0', help="listening IP address for SIP and RTP. Default '0.0.0.0'")
     parser.add_option('-e', '--ext-ip',  dest='ext_ip',  default=None,      help='IP address to advertise in SIP/SDP. Default is to use "--int-ip" or any local interface')
     parser.add_option('-f', '--fork',    dest='fork',    default=1, type="int", help='Number of processes to use for concurrency. Default is 1.')

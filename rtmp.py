@@ -1060,7 +1060,7 @@ if __name__ == '__main__':
     parser = OptionParser()
     parser.add_option('-i', '--host',    dest='host',    default='0.0.0.0', help="listening IP address. Default '0.0.0.0'")
     parser.add_option('-p', '--port',    dest='port',    default=1935, type="int", help='listening port number. Default 1935')
-    parser.add_option('-r', '--root',    dest='root',    default='./',       help="document root directory. Default './'")
+    parser.add_option('-r', '--root',    dest='root',    default='./',       help="document path prefix. Directory must end with /. Default './'")
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
     (options, args) = parser.parse_args()
     
