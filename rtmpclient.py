@@ -48,7 +48,7 @@ class Client(Protocol):
     class to do handshake() and send() RPC commands to the server. The send method itself receives the RPC response.'''
     def __init__(self, sock): # similar to the Client class of rtmp.py
         Protocol.__init__(self, sock)
-        self.streams, self.objectEncoding, self._nextCallId, self.queue = {}, 0.0, 1, multitask.SmartQueue()
+        self.streams, self.objectEncoding, self._nextCallId, self.queue, self.close_queue = {}, 0.0, 1, multitask.SmartQueue(), multitask.Queue()
             
     def handshake(self): # Implement the client side of the handshake. Must be invoked by caller after TCP connection completes.
         yield self.stream.write('\x03' + '\x00'*(Protocol.PING_SIZE)) # send first handshake
@@ -63,10 +63,11 @@ class Client(Protocol):
         except ConnectionClosed: yield self.connectionClosed()
         
     def connectionClosed(self): # called by base class framework when server drops the TCP connections
-        if _debug: 'Client.connectionClosed'
+        if _debug: print 'Client.connectionClosed'
         yield self.writeMessage(None)
         for stream in self.streams.values(): yield stream.queue.put(None)
         yield self.queue.put(None)
+        yield self.close_queue.put(None)
         self.streams.clear()
     
     def send(self, cmd, timeout=None): # Call a RPC method on the server. This is used for connect, createStream, publish, etc. 
@@ -144,22 +145,30 @@ class NetStream(object):
         else: raise StopIteration, None
         
     def publish(self, name, mode='live', timeout=None):
-        yield self.stream.send(Command(name='publish', args=[name, mode]))
+        yield self.send(Command(name='publish', args=[name, mode]))
         msg = yield self.stream.recv()
         if _debug: print 'publish result=', msg
         raise StopIteration, True
     
     def play(self, name, timeout=None):
-        yield self.stream.send(Command(name='play', args=[name]))
+        yield self.send(Command(name='play', args=[name]))
         msg = yield self.stream.recv()
         if _debug: print 'play response=', msg
         raise StopIteration, True
     
     def close(self):
-        yield self.stream.send(Command(name='closeStream'))
+        yield self.send(Command(name='closeStream'))
         msg = yield self.stream.recv()
         if _debug: print 'closeStream response=', msg
 
+    def send(self, cmd):
+        cmd.id, cmd.type = float(self.nc._nextCallId), (self.nc.objectEncoding == 0.0 and Message.RPC or Message.RPC3)
+        self.nc._nextCallId += 1
+        msg = cmd.toMessage()
+        msg.streamId = self.stream.id
+        if _debug: print 'Stream.send cmd=', cmd, 'name=', cmd.name, 'args=', cmd.args, ' msg=', msg
+        yield self.nc.writeMessage(msg)
+    
 #--------------------------------
 # Resources implementation
 #--------------------------------
@@ -347,20 +356,33 @@ def connect(url, params=None, timeout=10, duration=60, publishStream='publish', 
     result = yield nc.connect(url, timeout, *params)
     if not result: raise StopIteration, 'Failed to connect %r'%(url,)
         
-    ns1 = yield NetStream().create(nc, timeout=timeout)
-    result = yield ns1.publish(publishStream, timeout=timeout)
-    if not result: yield nc.close(); raise StopIteration, 'Failed to create publish stream %r'%(publishStream,)
+    if publishStream:
+        ns1 = yield NetStream().create(nc, timeout=timeout)
+        if not ns1: raise StopIteration, 'Failed to create publish stream'
+        result = yield ns1.publish(publishStream, timeout=timeout)
+        if not result: yield nc.close(); raise StopIteration, 'Failed to create publish stream %r'%(publishStream,)
 
-    ns2 = yield NetStream().create(nc, timeout=timeout)
-    result = yield ns2.play(playStream, timeout=timeout)
-    if not result: yield nc.close(); raise StopIteration, 'Failed to create play stream %r'%(playStream,)
+    if playStream:
+        ns2 = yield NetStream().create(nc, timeout=timeout)
+        if not ns2: raise StopIteration, 'Failed to create play stream'
+        result = yield ns2.play(playStream, timeout=timeout)
+        if not result: yield nc.close(); raise StopIteration, 'Failed to create play stream %r'%(playStream,)
         
-    if publishFile: gen = _copy_loop(publishFile, ns1, enableAudio, enableVideo); multitask.add(gen)
-    yield multitask.sleep(duration)
-    
-    if _debug: print 'connect closing'
-    if publishFile: gen.close()
-    yield nc.close()
+    if publishFile and publishStream: # copy from file to stream
+        gen = _copy_loop(publishFile, ns1, enableAudio, enableVideo)
+        multitask.add(gen)
+
+    try: # if the remote side terminates before duration, 
+        print 'timeout=', duration
+        yield nc.client.close_queue.get(timeout=duration)
+        if _debug: print 'received connection close'
+        if publishFile: gen.close()
+    except multitask.Timeout: # else wait until duration
+        print 'timedout'
+        if _debug: print 'duration completed, connect closing'
+        if publishFile: gen.close()
+        yield nc.close()
+
     raise StopIteration(None)
     
     
