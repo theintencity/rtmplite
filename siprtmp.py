@@ -714,10 +714,25 @@ class Context(object):
                     #if _debug: print '  Audio is %r'%(message.data[0])
                     if self.session and self.session.media:
                         self._ts += (self._audio.rate * 20 / 1000) # assume 20 ms data at 16000 Hz
-                        self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=self._audio)
+                        # self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=self._audio)
+                        payload = message.data[1:]
+                        if self._audio.rate == 8000: # Flash Player still sends 16000 Hz
+                            payload = self.remove_wideband(payload)
+                        self.session.media.send(payload=payload, ts=self._ts, marker=False, fmt=self._audio)
         except:
             if _debug: print '  exception in rtmp_data', (sys and sys.exc_info() or None)
         yield
+
+    def remove_wideband(self, payload):
+        if ord(payload[0]) & 0x80 == 0: # narrowband
+            mode = (ord(payload[0]) & 0x78) >> 3
+            bits = (5, 43, 119, 160, 220, 300, 364, 492, 79)[mode] if mode < 9 else 0
+            size, bits = bits / 8, bits % 8
+            if bits and (size + 1) <= len(payload):
+                payload = payload[:size] + chr(((ord(payload[size]) & ((0xff << (8-bits)) & 0xff)) | (0xff >> (bits + 1))) & 0xff)
+            elif not bits and size <= len(payload):
+                payload = payload[:size]
+        return payload
 
     def rtmp_sendDTMF(self, digit):
         try:
