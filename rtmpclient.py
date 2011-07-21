@@ -162,12 +162,12 @@ class NetStream(object):
         if _debug: print 'closeStream response=', msg
 
     def send(self, cmd):
-        cmd.id, cmd.type = float(self.nc._nextCallId), (self.nc.objectEncoding == 0.0 and Message.RPC or Message.RPC3)
-        self.nc._nextCallId += 1
+        cmd.id, cmd.type = float(self.nc.client._nextCallId), (self.nc.client.objectEncoding == 0.0 and Message.RPC or Message.RPC3)
+        self.nc.client._nextCallId += 1
         msg = cmd.toMessage()
         msg.streamId = self.stream.id
         if _debug: print 'Stream.send cmd=', cmd, 'name=', cmd.name, 'args=', cmd.args, ' msg=', msg
-        yield self.nc.writeMessage(msg)
+        yield self.nc.client.writeMessage(msg)
     
 #--------------------------------
 # Resources implementation
@@ -376,11 +376,11 @@ def connect(url, params=None, timeout=10, duration=60, publishStream='publish', 
         print 'timeout=', duration
         yield nc.client.close_queue.get(timeout=duration)
         if _debug: print 'received connection close'
-        if publishFile: gen.close()
-    except multitask.Timeout: # else wait until duration
+        if publishFile and publishStream: gen.close()
+    except (multitask.Timeout, GeneratorExit): # else wait until duration
         print 'timedout'
         if _debug: print 'duration completed, connect closing'
-        if publishFile: gen.close()
+        if publishFile and publishStream: gen.close()
         yield nc.close()
 
     raise StopIteration(None)
