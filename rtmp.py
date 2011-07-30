@@ -60,7 +60,7 @@ throw an exception and display the error message.
 
 '''
 
-import os, sys, time, struct, socket, traceback, multitask, amf
+import os, sys, time, struct, socket, traceback, multitask, amf, hashlib, hmac, random
 
 _debug = False
 
@@ -184,6 +184,13 @@ class Protocol(object):
             self.readChunkSize = struct.unpack('>L', msg.data)[0]
         elif msg.type == Message.WIN_ACK_SIZE:
             self.readWinSize, self.readWinSize0 = struct.unpack('>L', msg.data)[0], self.stream.bytesRead
+        elif msg.type == Message.USER_CONTROL:
+            type, data = struct.unpack('>H', msg.data[:2]), msg.data[2:]
+            if type == 3: # client expects a response when it sends set buffer length
+                streamId, bufferTime = struct.unpack('>II', data)
+                response = Message()
+                response.type, response.data = Message.USER_CONTROL, struct.pack('>HI', 0, streamId)
+                yield self.writeMessage(response)
             
     def connectionClosed(self):
         yield
@@ -198,6 +205,7 @@ class Protocol(object):
             if _debug: print 'parse connection closed'
         except:
             if _debug: print 'exception, closing connection'
+            if _debug: traceback.print_exc()
             yield self.connectionClosed()
                     
     def writeMessage(self, message):
@@ -217,18 +225,62 @@ class Protocol(object):
             raise ConnectionClosed
         else:
             yield self.stream.unread(data)
-                    
+            
+    SERVER_KEY = '\x47\x65\x6e\x75\x69\x6e\x65\x20\x41\x64\x6f\x62\x65\x20\x46\x6c\x61\x73\x68\x20\x4d\x65\x64\x69\x61\x20\x53\x65\x72\x76\x65\x72\x20\x30\x30\x31\xf0\xee\xc2\x4a\x80\x68\xbe\xe8\x2e\x00\xd0\xd1\x02\x9e\x7e\x57\x6e\xec\x5d\x2d\x29\x80\x6f\xab\x93\xb8\xe6\x36\xcf\xeb\x31\xae'
+    FLASHPLAYER_KEY = '\x47\x65\x6E\x75\x69\x6E\x65\x20\x41\x64\x6F\x62\x65\x20\x46\x6C\x61\x73\x68\x20\x50\x6C\x61\x79\x65\x72\x20\x30\x30\x31\xF0\xEE\xC2\x4A\x80\x68\xBE\xE8\x2E\x00\xD0\xD1\x02\x9E\x7E\x57\x6E\xEC\x5D\x2D\x29\x80\x6F\xAB\x93\xB8\xE6\x36\xCF\xEB\x31\xAE'
+    
     def parseHandshake(self):
         '''Parses the rtmp handshake'''
         data = (yield self.stream.read(Protocol.PING_SIZE + 1)) # bound version and first ping
         # send both data parts before reading next ping-size, to work with ffmpeg
-        #if struct.unpack('>I', data[5:9])[0] == 0:
-        #    data = struct.pack('>BII', 0x03, 0, int(time.time())) + data[9:]
-        yield self.stream.write(data)
-        yield self.stream.write(data[1:])
-        data = (yield self.stream.read(Protocol.PING_SIZE)) # bound second ping
-        # yield self.stream.write(data)
-    
+        if struct.unpack('>I', data[5:9])[0] == 0:
+            data = '\x03' + '\x00'*Protocol.PING_SIZE
+            yield self.stream.write(data)
+            yield self.stream.write(data[1:])
+            data = (yield self.stream.read(Protocol.PING_SIZE)) # bound second ping
+            # yield self.stream.write(data)
+        else:
+            type, data = ord(data[0]), data[1:] # first byte is ignored
+            scheme = None
+            for s in range(0, 2):
+                digest_offset = (sum([ord(data[i]) for i in range(772, 776)]) % 728 + 776) if s == 1 else (sum([ord(data[i]) for i in range(8, 12)]) % 728 + 12)
+                temp = data[0:digest_offset] + data[digest_offset+32:Protocol.PING_SIZE]
+                hash = self._calculateHash(temp, self.FLASHPLAYER_KEY[:30])
+                if hash == data[digest_offset:digest_offset+32]:
+                    scheme = s
+                    break
+            if scheme is None:
+                if _debug: print 'invalid RTMP connection data, assuming scheme 0'
+                scheme = 0
+            client_dh_offset = (sum([ord(data[i]) for i in range(768, 772)]) % 632 + 8) if scheme == 1 else (sum([ord(data[i]) for i in range(1532, 1536)]) % 632 + 772)
+            outgoingKp = data[client_dh_offset:client_dh_offset+128]
+            handshake = struct.pack('>IBBBB', 0, 1, 2, 3, 4) + ''.join([chr(random.randint(0, 255)) for i in xrange(Protocol.PING_SIZE-8)])
+            server_dh_offset = (sum([ord(handshake[i]) for i in range(768, 772)]) % 632 + 8) if scheme == 1 else (sum([ord(handshake[i]) for i in range(1532, 1536)]) % 632 + 772)
+            keys = self._generateKeyPair() # (public, private)
+            handshake = handshake[:server_dh_offset] + keys[0][0:128] + handshake[server_dh_offset+128:]
+            if type > 0x03: raise Exception('encryption is not supported')
+            server_digest_offset = (sum([ord(handshake[i]) for i in range(772, 776)]) % 728 + 776) if scheme == 1 else (sum([ord(handshake[i]) for i in range(8, 12)]) % 728 + 12)
+            temp = handshake[0:server_digest_offset] + handshake[server_digest_offset+32:Protocol.PING_SIZE]
+            hash = self._calculateHash(temp, self.SERVER_KEY[:36])
+            handshake = handshake[:server_digest_offset] + hash + handshake[server_digest_offset+32:]
+            buffer = data[:Protocol.PING_SIZE-32]
+            key_challenge_offset = (sum([ord(buffer[i]) for i in range(772, 776)]) % 728 + 776) if scheme == 1 else (sum([ord(buffer[i]) for i in range(8, 12)]) % 728 + 12)
+            challenge_key = data[key_challenge_offset:key_challenge_offset+32]
+            hash = self._calculateHash(challenge_key, self.SERVER_KEY[:68])
+            rand_bytes = ''.join([chr(random.randint(0, 255)) for i in xrange(Protocol.PING_SIZE-32)])
+            last_hash = self._calculateHash(rand_bytes, hash[:32])
+            output = chr(type) + handshake + rand_bytes + last_hash
+            yield self.stream.write(output)
+            data = (yield self.stream.read(Protocol.PING_SIZE))
+        
+    @staticmethod
+    def _calculateHash(msg, key): # Hmac-sha256
+        return hmac.new(key, msg, hashlib.sha256).digest()
+        
+    @staticmethod
+    def _generateKeyPair(): # dummy key pair since we don't support encryption
+        return (''.join([chr(random.randint(0, 255)) for i in xrange(128)]), '')
+        
     def parseMessages(self):
         '''Parses complete messages until connection closed. Raises ConnectionLost exception.'''
         CHANNEL_MASK = 0x3F
@@ -636,6 +688,7 @@ class Client(Protocol):
             # if _debug: print 'rtmp.Client.messageReceived cmd=', cmd
             if cmd.name == 'connect':
                 self.agent = cmd.cmdData
+                if _debug: print 'connect', ', '.join(['%s=%r'%(x, getattr(self.agent, x)) for x in 'app flashVer swfUrl tcUrl fpad capabilities audioCodecs videoCodecs videoFunction pageUrl objectEncoding'.split() if hasattr(self.agent, x)])
                 self.objectEncoding = self.agent.objectEncoding if hasattr(self.agent, 'objectEncoding') else 0.0
                 yield self.server.queue.put((self, cmd.args)) # new connection
             elif cmd.name == 'createStream':
@@ -780,7 +833,7 @@ class App(object):
         if _debug: print self.name, 'onStatus', info
     def onResult(self, client, result):
         if _debug: print self.name, 'onResult', result
-    def onPublishData(self, client, stream, message): # this is invoked every time some media packet is received from published stream. 
+    def onPublishData(self, client, stream, message): # this is invoked every time some media packet is received from published stream.
         return True # should return True so that the data is actually published in that stream
     def onPlayData(self, client, stream, message):
         return True # should return True so that data will be actually played in that stream
