@@ -550,6 +550,8 @@ class Context(object):
         audio.fmt, video.fmt = [format(pt=96, name=self._audio.name, rate=self._audio.rate)], [format(pt=97, name=self._video.name, rate=self._video.rate)]
         if audiospeex:
             audio.fmt.extend([format(pt=98, name='speex', rate=16000 if self._audio.rate==8000 else 8000), format(pt=0, name='pcmu', rate=8000), format(pt=8, name='pcma', rate=8000)])
+        # add touchtone format to allow sending this format as well.
+        audio.fmt.extend([format(pt=101, name=self._touchtone.name, rate=self._touchtone.rate)])
         return [audio, video]
     
     def rtmp_invite(self, dest):
@@ -712,6 +714,8 @@ class Context(object):
             #if _debug: print 'RTP  pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
             if str(fmt.name).lower() == str(self._video.name).lower():  # this is a video (FLV) packet, just assemble and return to rtmp
                 yield self.video_rtp2rtmp(p)
+            elif str(fmt.name).lower() == str(self._touchtone.name).lower(): # this is DTMF
+                if _debug: print 'ignoring incoming DTMF touchtone'
             else: # this is a audio (Speex) packet. Build RTMP header and return to rtmp
                 speex_data, input_rate = self._transcode_sip2rtmp(fmt, p.payload)
                 payload, t = '\xb2' + speex_data, (p.ts / (input_rate / 1000))
