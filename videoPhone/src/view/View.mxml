@@ -348,7 +348,7 @@ appears on top, and the video part which takes almost whole of the view.
     		</mx:AddChild>
     	</mx:State>
     	
-    	<mx:State name="active">
+    	<mx:State name="active" exitState="adv.visible=false">
     		<mx:AddChild>
     			<view:HBar addedToStage="autoHide(event.currentTarget)">
 					<view:BButton label="T" toolTip="{_('Toggle phone dialpad')}" alpha="0.5" click="adv.visible = !adv.visible"/>
