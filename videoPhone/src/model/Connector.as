@@ -434,6 +434,16 @@ package model
 		}
 		
 		/**
+		 * When the ringing event is received.
+		 */
+		public function ringing(value:String):void
+		{
+			trace("ringing " + value);
+			if (currentState == OUTBOUND)
+				this.status = _("Ringing: " + value);
+		}
+		
+		/**
 		 * The method is used to add a given address to the cal history. The call history is
 		 * maintained in the shared object, and has a cap of 20 items in the history. This is
 		 * invoked when the connector goes in outbound or inbound call state.

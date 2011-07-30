@@ -561,10 +561,13 @@ class Context(object):
                     try: dest = Address(dest) # first try the default scheme supplied by application
                     except: dest = Address(self.user.address.uri.scheme + ':' + dest) # otherwise scheme is picked from registered URI
                     media = MediaSession(app=self, streams=self._get_sdp_streams(), listen_ip=agent.int_ip)
-                    self.outgoing = self.user.connect(dest, sdp=media.mysdp)
+                    self.outgoing = self.user.connect(dest, sdp=media.mysdp, provisional=True)
                     session, reason = yield self.outgoing
-                    self.outgoing = None # because the generator returned, and no more pending outgoing call
                     if _debug: print '  session=', session, 'reason=', reason
+                    while reason is not None and reason.partition(" ")[0] in ('180', '183'):
+                        yield self.client.call('ringing', reason)
+                        session, reason = yield self.user.continueConnect(session, provisional=True)
+                    self.outgoing = None # because the generator returned, and no more pending outgoing call
                     if session: # call connected
                         media.setRemote(session.yoursdp); session.media = media; self.session = session
                         self._transcode = self._get_transcode()
@@ -577,6 +580,7 @@ class Context(object):
             else: yield self.client.call('rejected', 'Registration required before making a call')
         except:
             if _debug: print '  exception in invite', (sys and sys.exc_info() or None)
+            if _debug: traceback.print_exc()
             yield self.client.call('rejected', 'Internal server error')
 
     def rtmp_accept(self):
