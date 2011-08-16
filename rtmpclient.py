@@ -110,7 +110,7 @@ class NetConnection(object):
         self.data.tcUrl, self.data.app = url, path
         sock = socket.socket(type=socket.SOCK_STREAM)
         if _debug: print 'NetConnection.connect url=', url, 'host=', host, 'port=', port
-        try: sock.connect((host, int(port)))
+        try: yield multitask.connect(sock, (host, int(port)))
         except: raise StopIteration, False
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # make it non-block
         self.client = yield Client(sock).handshake()
