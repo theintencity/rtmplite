@@ -51,6 +51,7 @@ class MyApp(App):         # a new MyApp extends the default App in rtmp module.
             client.call('connected', 'some-arg')
             yield
         multitask.add(invokeAdded(self, client))      # need to invoke later so that connection is established before callback
+        return result     # return True to accept, or None to postpone calling accept()
 ...
 agent.apps = dict({'myapp': MyApp, 'someapp': MyApp, '*': App})
 
