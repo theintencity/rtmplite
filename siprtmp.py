@@ -497,7 +497,7 @@ class Context(object):
         global agent
         scheme, ignore, aor = self.client.path.partition('/')
         if rate == 'narrowband': self._audio.rate = 8000
-        if _debug: print 'rtmp-register scheme=', scheme, 'aor=', aor, 'login=', login, 'passwd=', '*'*(len(passwd)), 'display=', display
+        if _debug: print 'rtmp-register scheme=', scheme, 'aor=', aor, 'login=', login, 'passwd=', '*'*(len(passwd) if passwd else 0), 'display=', display
         addr = '"%s" <sip:%s>'%(display, aor) if display else 'sip:%s'%(aor)
         sock = socket.socket(type=socket.SOCK_DGRAM) # signaling socket for SIP
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -520,7 +520,8 @@ class Context(object):
                     yield self.client.rejectConnection(reason=reason)
                     raise StopIteration(None)
                 self._gin = self._incominghandler(); multitask.add(self._gin) # incoming SIP messages handler
-            if _debug: print '  register successful'
+            else: user.address = Address(addr)
+            if _debug: print '  register successful', self.user.address
             yield self.client.accept()
         except: 
             if _debug: print '  exception in register', (sys and sys.exc_info() or None)
@@ -564,11 +565,16 @@ class Context(object):
                     except: dest = Address(self.user.address.uri.scheme + ':' + dest) # otherwise scheme is picked from registered URI
                     media = MediaSession(app=self, streams=self._get_sdp_streams(), listen_ip=agent.int_ip)
                     self.outgoing = self.user.connect(dest, sdp=media.mysdp, provisional=True)
-                    session, reason = yield self.outgoing
-                    if _debug: print '  session=', session, 'reason=', reason
-                    while reason is not None and reason.partition(" ")[0] in ('180', '183'):
-                        yield self.client.call('ringing', reason)
-                        session, reason = yield self.user.continueConnect(session, provisional=True)
+                    try:
+                        session, reason = yield self.outgoing
+                        if _debug: print '  session=', session, 'reason=', reason
+                        while reason is not None and reason.partition(" ")[0] in ('180', '183'):
+                            yield self.client.call('ringing', reason)
+                            self.outgoing = self.user.continueConnect(session, provisional=True)
+                            session, reason = yield self.outgoing
+                    except:
+                        if self.outgoing is not None: raise 
+                        else: raise StopIteration(None) # else call was cancelled in another task
                     self.outgoing = None # because the generator returned, and no more pending outgoing call
                     if session: # call connected
                         media.setRemote(session.yoursdp); session.media = media; self.session = session
