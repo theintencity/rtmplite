@@ -1445,7 +1445,7 @@ class Gateway(App):
     def onCommand(self, client, cmd, *args):
         App.onCommand(self, client, cmd, args)
         if hasattr(client.context, 'rtmp_%s'%(cmd,)) and callable(eval('client.context.rtmp_%s'%(cmd,))): 
-            eval('client.context.rtmp_%s'%(cmd,))(*args)
+            gevent.spawn(eval('client.context.rtmp_%s'%(cmd,)), *args)
         elif _debug: print 'invalid command', cmd
     def onPublish(self, client, stream):
         if _debug: print self.name, 'onPublish', client.path, stream.name
