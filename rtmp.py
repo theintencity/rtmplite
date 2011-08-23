@@ -233,20 +233,23 @@ class Protocol(object):
     def parseHandshake(self):
         '''Parses the rtmp handshake'''
         data = (yield self.stream.read(Protocol.PING_SIZE + 1)) # bound version and first ping
+        data = Protocol.handshakeResponse(data)
+        yield self.stream.write(data)
+        data = (yield self.stream.read(Protocol.PING_SIZE))
+    
+    @staticmethod
+    def handshakeResponse(data):
         # send both data parts before reading next ping-size, to work with ffmpeg
         if struct.unpack('>I', data[5:9])[0] == 0:
             data = '\x03' + '\x00'*Protocol.PING_SIZE
-            yield self.stream.write(data)
-            yield self.stream.write(data[1:])
-            data = (yield self.stream.read(Protocol.PING_SIZE)) # bound second ping
-            # yield self.stream.write(data)
+            return data + data[1:]
         else:
             type, data = ord(data[0]), data[1:] # first byte is ignored
             scheme = None
             for s in range(0, 2):
                 digest_offset = (sum([ord(data[i]) for i in range(772, 776)]) % 728 + 776) if s == 1 else (sum([ord(data[i]) for i in range(8, 12)]) % 728 + 12)
                 temp = data[0:digest_offset] + data[digest_offset+32:Protocol.PING_SIZE]
-                hash = self._calculateHash(temp, self.FLASHPLAYER_KEY[:30])
+                hash = Protocol._calculateHash(temp, Protocol.FLASHPLAYER_KEY[:30])
                 if hash == data[digest_offset:digest_offset+32]:
                     scheme = s
                     break
@@ -257,22 +260,21 @@ class Protocol(object):
             outgoingKp = data[client_dh_offset:client_dh_offset+128]
             handshake = struct.pack('>IBBBB', 0, 1, 2, 3, 4) + ''.join([chr(random.randint(0, 255)) for i in xrange(Protocol.PING_SIZE-8)])
             server_dh_offset = (sum([ord(handshake[i]) for i in range(768, 772)]) % 632 + 8) if scheme == 1 else (sum([ord(handshake[i]) for i in range(1532, 1536)]) % 632 + 772)
-            keys = self._generateKeyPair() # (public, private)
+            keys = Protocol._generateKeyPair() # (public, private)
             handshake = handshake[:server_dh_offset] + keys[0][0:128] + handshake[server_dh_offset+128:]
             if type > 0x03: raise Exception('encryption is not supported')
             server_digest_offset = (sum([ord(handshake[i]) for i in range(772, 776)]) % 728 + 776) if scheme == 1 else (sum([ord(handshake[i]) for i in range(8, 12)]) % 728 + 12)
             temp = handshake[0:server_digest_offset] + handshake[server_digest_offset+32:Protocol.PING_SIZE]
-            hash = self._calculateHash(temp, self.SERVER_KEY[:36])
+            hash = Protocol._calculateHash(temp, Protocol.SERVER_KEY[:36])
             handshake = handshake[:server_digest_offset] + hash + handshake[server_digest_offset+32:]
             buffer = data[:Protocol.PING_SIZE-32]
             key_challenge_offset = (sum([ord(buffer[i]) for i in range(772, 776)]) % 728 + 776) if scheme == 1 else (sum([ord(buffer[i]) for i in range(8, 12)]) % 728 + 12)
             challenge_key = data[key_challenge_offset:key_challenge_offset+32]
-            hash = self._calculateHash(challenge_key, self.SERVER_KEY[:68])
+            hash = Protocol._calculateHash(challenge_key, Protocol.SERVER_KEY[:68])
             rand_bytes = ''.join([chr(random.randint(0, 255)) for i in xrange(Protocol.PING_SIZE-32)])
-            last_hash = self._calculateHash(rand_bytes, hash[:32])
+            last_hash = Protocol._calculateHash(rand_bytes, hash[:32])
             output = chr(type) + handshake + rand_bytes + last_hash
-            yield self.stream.write(output)
-            data = (yield self.stream.read(Protocol.PING_SIZE))
+            return output
         
     @staticmethod
     def _calculateHash(msg, key): # Hmac-sha256

@@ -866,7 +866,6 @@ class Context(object):
             
     def _transcode_rtmp2sip(self, payload):
         fmt = self._audio
-        # self.session.media.send(payload=message.data[1:], ts=self._ts, marker=False, fmt=self._audio)
         if not self._transcode: # no transcoding needed
             if self._audio.rate == 8000: # Flash Player still sends 16000 Hz
                 payload = self._remove_wideband(payload)
