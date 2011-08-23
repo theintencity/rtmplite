@@ -818,8 +818,7 @@ class User(object):
             if response.is2xx: # success
                 session = Session(user=self, dest=dest)
                 session.ua = hasattr(ua, 'dialog') and ua.dialog or ua
-                session.mysdp, session.yoursdp, session.local = sdp, None, local
-                session.remote= [(x.value.split(':')[0], int(x.value.split(':')[1])) for x in response.all('Candidate')] # store remote candidates if available 
+                session.mysdp, session.yoursdp = sdp, None
                 
                 if response.body and response['Content-Type'] and response['Content-Type'].value.lower() == 'application/sdp':
                     session.yoursdp = rfc4566.SDP(response.body)
