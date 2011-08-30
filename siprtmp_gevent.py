@@ -42,9 +42,11 @@ from rtmp import Header, Message, Command, App, getfilename, Protocol
 try:
     from std import rfc3261, rfc3264, rfc3550, rfc2396, rfc4566, rfc2833, kutil
     from app.voip import MediaSession
+    sip = True
 except:
-    print 'Please include p2p-sip src directory in your PYTHONPATH'
-    sys.exit(1)
+    print 'warning: disabling SIP. To enable please include p2p-sip src directory in your PYTHONPATH before starting this application'
+    sip = False
+    # sys.exit(1)
 
 try: import audiospeex, audioop
 except: audiospeex = None
@@ -1548,6 +1550,7 @@ class Gateway(App):
 
 class FlashServer(StreamServer):
     def __init__(self, options):
+        global sip
         def handle(socket, address):
             if _debug: print 'connection[%r] received from %r'%(socket, address)
             client = FlashClient(self, socket)
@@ -1567,7 +1570,7 @@ class FlashServer(StreamServer):
     
         StreamServer.__init__(self, (options.host, options.port), handle)
         self.int_ip, self.ext_ip, self.root = options.int_ip, options.ext_ip, options.root
-        self.apps, self.clients = dict({'*': App, 'sip': Gateway}), dict()
+        self.apps, self.clients = dict({'*': App, 'sip': Gateway if sip else App}), dict()
 
 
 # The main routine to start, run and stop the service
