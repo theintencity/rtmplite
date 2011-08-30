@@ -192,7 +192,8 @@ class Protocol(object):
                 response = Message()
                 response.type, response.data = Message.USER_CONTROL, struct.pack('>HI', 0, streamId)
                 yield self.writeMessage(response)
-            
+        yield
+        
     def connectionClosed(self):
         yield
                             
@@ -366,7 +367,7 @@ class Protocol(object):
                 if _debug: print 'Protocol.parseMessage msg=', msg
                 try:
                     if channel == Protocol.PROTOCOL_CHANNEL_ID:
-                        self.protocolMessage(msg)
+                        yield self.protocolMessage(msg)
                     else: 
                         yield self.messageReceived(msg)
                 except:
