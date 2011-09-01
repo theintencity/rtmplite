@@ -48,8 +48,7 @@ class MyApp(App):         # a new MyApp extends the default App in rtmp module.
     def onConnect(self, client, *args):
         result = App.onConnect(self, client, *args)   # invoke base class method first
         def invokeAdded(self, client):                # define a method to invoke 'connected("some-arg")' on Flash client
-            client.call('connected', 'some-arg')
-            yield
+            yield client.call('connected', 'some-arg')
         multitask.add(invokeAdded(self, client))      # need to invoke later so that connection is established before callback
         return result     # return True to accept, or None to postpone calling accept()
 ...
@@ -841,13 +840,59 @@ class App(object):
         return True # should return True so that the data is actually published in that stream
     def onPlayData(self, client, stream, message):
         return True # should return True so that data will be actually played in that stream
+
+class Wirecast(App):
+    '''A wrapper around App to workaround with wirecast publisher which does not send AVC seq periodically. It defines new stream variables
+    such as in publish stream 'metaData' to store first published metadata Message, and 'avcSeq' to store the last published AVC seq Message,
+    and in play stream 'avcIntra' to indicate if AVC intra frame has been sent or not. These variables are created onPublish and onPlay.
+    Additional, when onPlay it also also sends any published stream.metaData if found in associated publisher. When onPlayData for video, if
+    it detects AVC seq it sets avcIntra so that it is not explicitly sent. This is the case with Flash Player publisher. When onPlayData for video,
+    if it detects avcIntra is not set, it discards the packet until AVC NALU or seq is received. If NALU is received but previous seq is not received
+    it uses the publisher's avcSeq message to send before this NALU if found.'''
+    def __init__(self):
+        App.__init__(self)
+
+    def onPublish(self, client, stream):
+        App.onPublish(self, client, stream)
+        if not hasattr(stream, 'metaData'): stream.metaData = None
+        if not hasattr(stream, 'avcSeq'): stream.avcSeq = None
+        
+    def onPlay(self, client, stream):
+        App.onPlay(self, client, stream)
+        if not hasattr(stream, 'avcIntra'): stream.avcIntra = False
+        publisher = self.publishers.get(stream.name, None)
+        if publisher and publisher.metaData: # send published meta data to this player joining late
+            multitask.add(stream.send(publisher.metaData.dup()))
     
+    def onPublishData(self, client, stream, message):
+        if message.type == Message.DATA and not stream.metaData: # store the first meta data on this published stream for late joining players
+            stream.metaData = message.dup()
+        if message.type == Message.VIDEO and message.data[:2] == '\x17\x00': # H264Avc intra + seq, store it
+            stream.avcSeq = message.dup()
+        return True
+
+    def onPlayData(self, client, stream, message):
+        if message.type == Message.VIDEO: # only video packets need special handling
+            if message.data[:2] == '\x17\x00': # intra+seq is being sent, possibly by Flash Player publisher.
+                stream.avcIntra = True
+            elif not stream.avcIntra:  # intra frame hasn't been sent yet.
+                if message.data[:2] == '\x17\x01': # intra+nalu is being sent, possibly by wirecast publisher.
+                    publisher = self.publishers.get(stream.name, None)
+                    if publisher and publisher.avcSeq: # if a publisher exists
+                        def sendboth(stream, msgs):
+                            stream.avcIntra = True
+                            for msg in msgs: yield stream.send(msg)
+                        multitask.add(sendboth(stream, [publisher.avcSeq.dup(), message]))
+                        return False # so that caller doesn't send it again
+                return False # drop until next intra video is sent
+        return True
+
 class FlashServer(object):
     '''A RTMP server to record and stream Flash video.'''
     def __init__(self):
         '''Construct a new FlashServer. It initializes the local members.'''
         self.sock = self.server = None;
-        self.apps = dict({'*': App}) # supported applications: * means any as in {'*': App}
+        self.apps = dict({'*': App, 'wirecast': Wirecast}) # supported applications: * means any as in {'*': App}
         self.clients = dict()  # list of clients indexed by scope. First item in list is app instance.
         self.root = '';
         

@@ -1547,6 +1547,43 @@ class Gateway(App):
         client.context.rtmp_data(stream, message)
         return False
 
+class Wirecast(App):
+    '''Similar to rtmp module's class except this uses gevent.'''
+    def __init__(self):
+        App.__init__(self)
+
+    def onPublish(self, client, stream):
+        App.onPublish(self, client, stream)
+        if not hasattr(stream, 'metaData'): stream.metaData = None
+        if not hasattr(stream, 'avcSeq'): stream.avcSeq = None
+        
+    def onPlay(self, client, stream):
+        App.onPlay(self, client, stream)
+        if not hasattr(stream, 'avcIntra'): stream.avcIntra = False
+        publisher = self.publishers.get(stream.name, None)
+        if publisher and publisher.metaData: # send published meta data to this player joining late
+            client.writeMessage(publisher.metaData.dup(), stream)
+    
+    def onPublishData(self, client, stream, message):
+        if message.type == Message.DATA and not stream.metaData: # store the first meta data on this published stream for late joining players
+            stream.metaData = message.dup()
+        if message.type == Message.VIDEO and message.data[:2] == '\x17\x00': # H264Avc intra + seq, store it
+            stream.avcSeq = message.dup()
+        return True
+
+    def onPlayData(self, client, stream, message):
+        if message.type == Message.VIDEO: # only video packets need special handling
+            if message.data[:2] == '\x17\x00': # intra+seq is being sent, possibly by Flash Player publisher.
+                stream.avcIntra = True
+            elif not stream.avcIntra:  # intra frame hasn't been sent yet.
+                if message.data[:2] == '\x17\x01': # intra+nalu is being sent, possibly by wirecast publisher.
+                    publisher = self.publishers.get(stream.name, None)
+                    if publisher and publisher.avcSeq: # if a publisher exists
+                        stream.avcIntra = True
+                        client.writeMessage(publisher.avcSeq.dup(), stream)
+                        return True # so that the caller sends message
+                return False # drop until next intra video is sent
+        return True
 
 class FlashServer(StreamServer):
     def __init__(self, options):
@@ -1570,7 +1607,7 @@ class FlashServer(StreamServer):
     
         StreamServer.__init__(self, (options.host, options.port), handle)
         self.int_ip, self.ext_ip, self.root = options.int_ip, options.ext_ip, options.root
-        self.apps, self.clients = dict({'*': App, 'sip': Gateway if sip else App}), dict()
+        self.apps, self.clients = dict({'*': App, 'sip': Gateway if sip else App, 'wirecast': Wirecast}), dict()
 
 
 # The main routine to start, run and stop the service
