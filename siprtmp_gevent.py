@@ -253,7 +253,7 @@ class FlashClient(object):
         elif msg.type == Message.WIN_ACK_SIZE: # update read window size
             self.readWinSize, self.readWinSize0 = struct.unpack('>L', msg.data)[0], self.bytesRead
         elif msg.type == Message.USER_CONTROL:
-            type, data = struct.unpack('>H', msg.data[:2]), msg.data[2:]
+            type, data = struct.unpack('>H', msg.data[:2])[0], msg.data[2:]
             if type == 3: # client expects a response when it sends set buffer length
                 streamId, bufferTime = struct.unpack('>II', data)
                 response = Message()
