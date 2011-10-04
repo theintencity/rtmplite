@@ -98,7 +98,8 @@ class FlashClient(object):
           None,      None,         {},           2,                1,                  0.0,             Message.RPC
         
     def send(self, data):
-        self.sock.sendall(data)
+        if self.sock is not None and data is not None:
+            self.sock.sendall(data)
         
     def received(self, data):
         self.buffer += data
