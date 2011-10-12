@@ -134,12 +134,46 @@ videos, such that VideoPublish is picture-in-picture inside VideoPlay view.
 			private function startPublish():void
 			{				
 				if (connector != null && connector.publishStream != null) {
-					var mic:Microphone = Microphone.getMicrophone(0);
-					mic['codec'] = "Speex";
-					mic.rate = connector.rate == "narrowband" ? 8 : 16;
-					mic['framesPerPacket'] = 1;
-					mic['encodeQuality'] = 6;
+					if (CONFIG::sdk4) {
+						var mic:Microphone = Microphone.getEnhancedMicrophone(-1);
+					}
+					else {
+						var mic:Microphone = Microphone.getMicrophone(-1);
+					}
+					
+					if (connector.preferredAudioCodec == "Speex/16000" || connector.preferredAudioCodec == "Speex/8000") {
+						mic['codec'] = "Speex";
+						mic.rate = 16;
+						mic['framesPerPacket'] = 1;
+						mic['encodeQuality'] = 6;
+					}
+					else if (connector.preferredAudioCodec == "Default") {
+						mic['codec'] = "Nellymoser";
+						mic.rate = 11;
+						mic['framesPerPacket'] = 2;
+					}
+					
+					if (CONFIG::player11) {
+						if (connector.preferredAudioCodec == "pcmu" || connector.preferredAudioCodec == "pcma") {
+							mic['codec'] = connector.preferredAudioCodec;
+							mic.rate = 8;
+							mic['framesPerPacket'] = 2;
+						}
+					}
+						
 					connector.publishStream.attachAudio(mic);
+					
+					if (CONFIG::player11) {
+						var s:flash.media.VideoStreamSettings = (connector.preferredVideoCodec == "Default" ? new flash.media.VideoStreamSettings() : new flash.media.H264VideoStreamSettings());
+						s.setMode(240, 180, 12);
+						s.setQuality(0, 80);
+						if (connector.preferredVideoCodec == "H264Avc/baseline" || connector.preferredVideoCodec == "H264Avc/main") {
+							var profile:String = (connector.preferredVideoCodec == "H264Avc/main" ? flash.media.H264Profile.MAIN : flash.media.H264Profile.BASELINE);
+							flash.media.H264VideoStreamSettings(s).setProfileLevel(profile, flash.media.H264Level.LEVEL_2);
+						}
+						connector.publishStream.videoStreamSettings = s;
+					}
+					
 					connector.publishStream.attachCamera(Camera.getCamera());
 				}
 			}

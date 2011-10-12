@@ -119,10 +119,15 @@ an incoming call. Please refer to the file Connector.as for further details.
 				menu.customItems.push(configure);
 				configure.addEventListener(ContextMenuEvent.MENU_ITEM_SELECT, main.configure);
 				
-				var caption:String = connector.rate == "narrowband" ? _("Use wideband Speex") : _("Use narrowband Speex");
+				var caption:String = connector.preferredAudioCodec == "Speex/8000" ? _("Use wideband Speex") : _("Use narrowband Speex");
 				var narrowband:ContextMenuItem = new ContextMenuItem(caption);
 				menu.customItems.push(narrowband);
 				narrowband.addEventListener(ContextMenuEvent.MENU_ITEM_SELECT, narrowbandHandler);
+				
+				var buffer:String = connector.bufferTime == 0.0 ? _("Add play buffering") : _("Remove play buffering");
+				var buffering:ContextMenuItem = new ContextMenuItem(buffer);
+				menu.customItems.push(buffering);
+				buffering.addEventListener(ContextMenuEvent.MENU_ITEM_SELECT, bufferingHandler);
 				
 				trace("installed context menu");
 			}
@@ -131,8 +136,17 @@ an incoming call. Please refer to the file Connector.as for further details.
 			{
 				var narrowband:ContextMenuItem = event.currentTarget as ContextMenuItem;
 				if (narrowband != null) {
-					connector.rate = narrowband.caption == _("Use narrowband Speex") ? "narrowband" : "wideband";
+					connector.preferredAudioCodec = narrowband.caption == _("Use narrowband Speex") ? "Speex/8000" : "Speex/16000";
 					narrowband.caption = narrowband.caption == _("Use narrowband Speex") ? _("Use wideband Speex") : _("Use narrowband Speex");
+				}
+			}
+			
+			private function bufferingHandler(event:ContextMenuEvent):void
+			{
+				var buffering:ContextMenuItem = event.currentTarget as ContextMenuItem;
+				if (buffering != null) {
+					connector.bufferTime = buffering.caption == _("Add play buffering") ? 0.1 : 0.0;
+					buffering.caption = connector.bufferTime == 0.0 ? _("Add play buffering") : _("Remove play buffering");
 				}
 			}
 			

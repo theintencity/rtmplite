@@ -18,7 +18,9 @@ ToolTip {
 
 .ttextinput {
 }
-
+.ccombobox {
+	corner-radius: 0;
+}
 .bbutton {
 	corner-radius: 0;
 	padding-left: 0;

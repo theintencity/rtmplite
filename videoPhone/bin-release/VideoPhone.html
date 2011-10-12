@@ -56,6 +56,7 @@ else {
 // Version check for the Flash Player that has the ability to start Player Product Install (6.0r65)
 var hasProductInstall = DetectFlashVer(6, 0, 65);
 
+
 // Version check based upon the values defined in globals
 var hasRequestedVersion = DetectFlashVer(requiredMajorVersion, requiredMinorVersion, requiredRevision);
 
@@ -82,10 +83,14 @@ if ( hasProductInstall && !hasRequestedVersion ) {
 		"pluginspage", "http://www.adobe.com/go/getflashplayer"
 	);
 } else if (hasRequestedVersion) {
+	var hasVersion10_3 = DetectFlashVer(10, 3, 0);
+	var hasVersion11 = DetectFlashVer(11, 0, 0);
+	var VideoPhone = (hasVersion11 ? 'VideoPhone11' : (hasVersion10_3 ? 'VideoPhone45' : 'VideoPhone'));
+
 	// if we've detected an acceptable version
 	// embed the Flash Content SWF when all tests are passed
 	AC_FL_RunContent(
-			"src", "VideoPhone",
+			"src", VideoPhone,
 			"width", "214",
 			"height", "137",
 			"align", "middle",

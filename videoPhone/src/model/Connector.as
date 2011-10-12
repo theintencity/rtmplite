@@ -11,6 +11,7 @@ package model
 	import flash.net.NetStream;
 	import flash.net.ObjectEncoding;
 	import flash.net.SharedObject;
+	import mx.collections.ArrayCollection;
 	
 	/**
 	 * The Connector object provides the abstraction and API to connect to the backend SIP-RTMP
@@ -35,7 +36,7 @@ package model
 		 * idle call status, i.e., you are ready for the call, but there is no call state yet.
 		 */
 		public static const IDLE:String      = "idle";
-		public static const CONNECTING:String = "connecting";
+		public static const CONNECTING:String= "connecting";
 		public static const CONNECTED:String = "connected";
 		public static const OUTBOUND:String  = "outbound";
 		public static const INBOUND:String   = "inbound";
@@ -46,7 +47,7 @@ package model
 		 * properties are used in the View to display and be editable. These are also stored in
 		 * the local shared object if user chose to remember his configuration. 
 		 */
-		public static const allowedParameters:Array = ["signupURL", "gatewayURL", "sipURL", "authName", "authPass", "displayName", "targetURL", "rate"];
+		public static const allowedParameters:Array = ["signupURL", "gatewayURL", "sipURL", "authName", "authPass", "displayName", "targetURL", "preferredAudioCodec", "preferredVideoCodec"];
 		
 		/**
 		 * Maximum size of the call history in terms of number of last unique dialed or received
@@ -171,10 +172,29 @@ package model
 		
 		[Bindable]
 		/**
-		 * The rate of Speex audio captured by microphone is either "narrowband" or "wideband".
-		 * Default is "wideband".
+		 * The preferred audio codec must be set before register.
+		 * Default is "speex/16000".
 		 */
-		public var rate:String = "wideband";
+		public var preferredAudioCodec:String = "Speex/16000";
+		
+		[Bindable]
+		/**
+		 * The preferred video codec must be set before register.
+		 * Default is "Sorenson".
+		 */
+		public var preferredVideoCodec:String = "Default";
+		
+		[Bindable]
+		/**
+		 * The list of audio codecs.
+		 */
+		public var audioCodecs:ArrayCollection = new ArrayCollection();
+		
+		[Bindable]
+		/**
+		 * The list of video codecs.
+		 */
+		public var videoCodecs:ArrayCollection = new ArrayCollection();
 		
 		//--------------------------------------
 		// CONSTRUCTOR
@@ -186,8 +206,28 @@ package model
 		 */
 		public function Connector()
 		{
+			audioCodecs.addItem("Default");
+			audioCodecs.addItem("Speex/16000");
+			audioCodecs.addItem("Speex/8000");
+			if (CONFIG::player11) {
+				audioCodecs.addItem("pcmu");
+				audioCodecs.addItem("pcma");
+			}
+			
+			videoCodecs.addItem("Default");
+			if (CONFIG::player11) {
+				videoCodecs.addItem("H264Avc/baseline");
+				videoCodecs.addItem("H264Avc/main");
+			}
+			
 			so = SharedObject.getLocal("phone");
 			load();
+			
+			// if stored value is not in the platform, change to default
+			if (audioCodecs.getItemIndex(this.preferredAudioCodec) < 0)
+				this.preferredAudioCodec = "Speex/16000";
+			if (videoCodecs.getItemIndex(this.preferredVideoCodec) < 0)
+				this.preferredVideoCodec = "Default";
 		}
 		
 		//--------------------------------------
@@ -261,6 +301,20 @@ package model
 		public function get publishStream():NetStream
 		{
 			return _publish;
+		}
+		
+		/**
+		 * The read write property to set the bufferTime.
+		 */
+		public function get bufferTime():Number
+		{
+			return _play != null ? _play.bufferTime : 0.0;
+		}
+		public function set bufferTime(value:Number):void
+		{
+			if (_play != null) {
+				_play.bufferTime = value;
+			}
 		}
 		
 		//--------------------------------------
@@ -606,17 +660,17 @@ package model
 					nc = null; _play = _publish = null;
 				}
 				
-		    	nc = new NetConnection();
-		    	nc.objectEncoding = ObjectEncoding.AMF0; // This is MUST!
-		    	nc.client = this;
-		    	nc.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
-		    	nc.addEventListener(IOErrorEvent.IO_ERROR, errorHandler, false, 0, true);
-		    	nc.addEventListener(SecurityErrorEvent.SECURITY_ERROR, errorHandler, false, 0, true);
-		    	nc.addEventListener(AsyncErrorEvent.ASYNC_ERROR, errorHandler, false, 0, true);
-		    	
-		    	var url:String = this.gatewayURL + "/" + (this.sipURL.substr(0, 4) == "sip:" ? this.sipURL.substr(4) : this.sipURL); 
-		    	trace('connect() ' + url);
-			    nc.connect(url, this.authName, this.authPass, this.displayName, this.rate);
+				nc = new NetConnection();
+				//nc.objectEncoding = ObjectEncoding.AMF0; // This is MUST!
+				nc.client = this;
+				nc.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+				nc.addEventListener(IOErrorEvent.IO_ERROR, errorHandler, false, 0, true);
+				nc.addEventListener(SecurityErrorEvent.SECURITY_ERROR, errorHandler, false, 0, true);
+				nc.addEventListener(AsyncErrorEvent.ASYNC_ERROR, errorHandler, false, 0, true);
+				
+				var url:String = this.gatewayURL + "/" + (this.sipURL.substr(0, 4) == "sip:" ? this.sipURL.substr(4) : this.sipURL); 
+				trace('connect() ' + url);
+				nc.connect(url, this.authName, this.authPass, this.displayName, this.preferredAudioCodec, this.preferredVideoCodec);
 			}
 		}
 		
@@ -632,8 +686,11 @@ package model
 			case 'NetConnection.Connect.Success':
 				_publish = new NetStream(nc);
 				_play = new NetStream(nc);
+				_play.bufferTime = 0;
 				_publish.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
 				_play.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+				_publish.client = {}
+				_play.client = {}
 				if (currentState == CONNECTING)
 					currentState = CONNECTED;
 				break;
@@ -643,9 +700,9 @@ package model
 				if (nc != null)
 					nc.close();
 				nc = null; _play = _publish = null;
-		    	currentState = IDLE;
+				currentState = IDLE;
 				if ('description' in event.info)
-		    		this.status = _("reason") + ": " + event.info.description;
+					this.status = _("reason") + ": " + event.info.description;
 				break;
 			}
 		}
@@ -671,10 +728,10 @@ package model
 		private function disconnectInternal():void
 		{
 			currentState = IDLE;
-        	if (nc != null) {
-        		nc.close();
+			if (nc != null) {
+				nc.close();
 				nc = null; _play = _publish = null;
-        	}
+			}
 		}
 		
 		/**

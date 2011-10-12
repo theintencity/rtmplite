@@ -13,10 +13,13 @@ appears on top, and the video part which takes almost whole of the view.
 	<mx:Script>
 		<![CDATA[
 			import model.Connector;
+			import flash.utils.Timer;
 			import mx.controls.CheckBox;
 			import mx.events.PropertyChangeEvent;
 			import mx.core.Application;
 			import mx.core.UIComponent;
+			import mx.controls.TextInput;
+			import mx.controls.ComboBox;
 			
 			//--------------------------------------
 			// PRIVATE PROPERTIES
@@ -64,10 +67,10 @@ appears on top, and the video part which takes almost whole of the view.
 				trace("going full screen or returning from full screen");
 				try {
 					//this.stage.fullScreenSourceRect = new Rectangle(0, 0, this.width, this.height);
-				    this.stage.displayState = (this.stage.displayState == StageDisplayState.FULL_SCREEN ? StageDisplayState.NORMAL : StageDisplayState.FULL_SCREEN);
+					this.stage.displayState = (this.stage.displayState == StageDisplayState.FULL_SCREEN ? StageDisplayState.NORMAL : StageDisplayState.FULL_SCREEN);
 				}
 				catch (e:Error) {
-				    trace("goFullScreen() error " + e.message + "\n" + e.getStackTrace());
+					trace("goFullScreen() error " + e.message + "\n" + e.getStackTrace());
 				}
 			}
 			
@@ -197,183 +200,232 @@ appears on top, and the video part which takes almost whole of the view.
 						connector.sendDigit(event.data);
 				}
 			}
+			
+			/**
+			 * Set the focus to the currentTarget of the event.
+			 * We need to set the focus after a timeout otherwise it throws a null object exception in Flash Player 11.
+			 */
+			private function addedHandler(event:Event):void
+			{
+				var handler:Function = function(ev:Event):void {
+					try {
+						Timer(ev.currentTarget).removeEventListener("timer", handler);
+						if (event.currentTarget is TextInput) 
+							TextInput(event.currentTarget).setFocus();
+						else if (event.currentTarget is ComboBox)
+							ComboBox(event.currentTarget).setFocus();
+					} catch (e:Error) {
+						// ignore.
+					}
+				};
+				
+				var t:Timer = new Timer(200, 1);
+				t.addEventListener("timer", handler);
+				t.start();
+			}
 		]]>
 	</mx:Script>
 
 	<!-- The VVideo component is used to display the video part in the background. -->
 	
-    <view:VVideo id="video" width="100%" height="100%" connector="{connector}"/>
-    
-    <!-- 
-    The top-bar has control components, which are displayed based on display state.
-    In the 'idle' state, which is the first state for configuration, the control displays a text
-    input box to edit the gateway URL of the form rtmp://server/sip. There is a next button on the
-    right which takes you to the next 'sipURL' state. The 'sipURL' state allows you to edit your
-    SIP address such as "bob@example.net" or "alice@192.168.1.3". There are previous and next buttons
-    to take you to previou and next display states. Similarly, the next three states, 'authName',
-    'authPass', 'displayName', allow you to change your SIP authentication name, authentication 
-    password and display name. Each of these have previous and next button to navigate back and
-    forth. After that the 'remember' state displays a single check-box which if checked saves 
-    your configuration information in Flash local shared object, so that next time you open this
-    Flash application it can read those configuration information. In this state when you click
-    on the next button, it invokes the connector to register with the gateway your SIP URL. In
-    this 'connecting' state, you may click on the 'X' button to cancel connection in which case
-    you will be taken back to the 'idle' state. If you connection succeeds, the view goes to
-    'connected' state. In the 'connected' state, the view displays a text input box to allow you to
-    type remote party's SIP URL to dial, and two buttons: one 'X' to clear or disconnect, and one
-    '>' to dial out. If you dial out, it goes to the 'outbound' state, with message indicating
-    that it is dialing out, and a button 'X' to cancel the dial out. If you receive an incoming
-    call in 'connected' state, it takes you to the 'inbound' state which displays the message 
-    indicating the inbound call, and two buttons: a 'X' to reject the incoming call, and a '<' 
-    to accept the incoming call. Both '>' and '<' buttons in 'outbound', and 'inbound' states,
-    respectively, are blinked until the state changes. In an 'active' call state, it hides the top
-    control bar except when mouse-over. Additionally, it displays three small buttons on top-right
-    corner. These buttons can be used to as follows: 'O' to change the view state of the video 
-    (local, remote, picture-in-picture), '+' to go full screen or restore, and 'X' to close the call.
-    -->
-    
-    <mx:states>
-    	<mx:State name="idle">
-    		<mx:AddChild>
-    			<view:HBar>
+	<view:VVideo id="video" width="100%" height="100%" connector="{connector}"/>
+	
+	<!-- 
+	The top-bar has control components, which are displayed based on display state.
+	In the 'idle' state, which is the first state for configuration, the control displays a text
+	input box to edit the gateway URL of the form rtmp://server/sip. There is a next button on the
+	right which takes you to the next 'sipURL' state. The 'sipURL' state allows you to edit your
+	SIP address such as "bob@example.net" or "alice@192.168.1.3". There are previous and next buttons
+	to take you to previou and next display states. Similarly, the next three states, 'authName',
+	'authPass', 'displayName', allow you to change your SIP authentication name, authentication 
+	password and display name. Each of these have previous and next button to navigate back and
+	forth. After that the 'remember' state displays a single check-box which if checked saves 
+	your configuration information in Flash local shared object, so that next time you open this
+	Flash application it can read those configuration information. In this state when you click
+	on the next button, it invokes the connector to register with the gateway your SIP URL. In
+	this 'connecting' state, you may click on the 'X' button to cancel connection in which case
+	you will be taken back to the 'idle' state. If you connection succeeds, the view goes to
+	'connected' state. In the 'connected' state, the view displays a text input box to allow you to
+	type remote party's SIP URL to dial, and two buttons: one 'X' to clear or disconnect, and one
+	'>' to dial out. If you dial out, it goes to the 'outbound' state, with message indicating
+	that it is dialing out, and a button 'X' to cancel the dial out. If you receive an incoming
+	call in 'connected' state, it takes you to the 'inbound' state which displays the message 
+	indicating the inbound call, and two buttons: a 'X' to reject the incoming call, and a '<' 
+	to accept the incoming call. Both '>' and '<' buttons in 'outbound', and 'inbound' states,
+	respectively, are blinked until the state changes. In an 'active' call state, it hides the top
+	control bar except when mouse-over. Additionally, it displays three small buttons on top-right
+	corner. These buttons can be used to as follows: 'O' to change the view state of the video 
+	(local, remote, picture-in-picture), '+' to go full screen or restore, and 'X' to close the call.
+	-->
+	
+	<mx:states>
+		<mx:State name="idle">
+			<mx:AddChild>
+				<view:HBar>
 					<view:TTextInput text="{connector.gatewayURL}" toolTip="{_('Edit your gateway URL,\ne.g., rtmp://localhost/sip')}" 
 						change="connector.gatewayURL=TTextInput(event.currentTarget).text" enter="currentState='sipURL'"
-						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
-    				<view:BButton label="&gt;" toolTip="{_('Next: your SIP URL')}" click="currentState='sipURL'"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="sipURL">
-    		<mx:AddChild>
-    			<view:HBar>
-    				<view:BButton label="&lt;" toolTip="{_('Prev: gateway URL')}" click="currentState='idle'"/>
-    				<view:TTextInput text="sip:" editable="false" width="28"/>
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: your SIP URL')}" click="currentState='sipURL'"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="sipURL">
+			<mx:AddChild>
+				<view:HBar>
+					<view:BButton label="&lt;" toolTip="{_('Prev: gateway URL')}" click="currentState='idle'"/>
+					<view:TTextInput text="sip:" editable="false" width="28"/>
 					<view:TTextInput text="{connector.sipURL}" toolTip="{_('Edit your SIP URL,\ne.g., bob@iptel.org')}" 
 						change="connector.sipURL=TTextInput(event.currentTarget).text" enter="currentState='authName'"
-						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
-    				<view:BButton label="&gt;" toolTip="{_('Next: auth name')}" click="currentState='authName'"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="authName">
-    		<mx:AddChild>
-    			<view:HBar>
-    				<view:BButton label="&lt;" toolTip="{_('Prev: SIP URL')}" click="currentState='sipURL'"/>
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: auth name')}" click="currentState='authName'"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="authName">
+			<mx:AddChild>
+				<view:HBar>
+					<view:BButton label="&lt;" toolTip="{_('Prev: SIP URL')}" click="currentState='sipURL'"/>
 					<view:TTextInput text="{connector.authName}" toolTip="{_('Edit your auth name,\ne.g., bob')}" 
 						change="connector.authName=TTextInput(event.currentTarget).text" enter="currentState='authPass'"
-						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
-    				<view:BButton label="&gt;" toolTip="{_('Next: auth password')}" click="currentState='authPass'"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="authPass">
-    		<mx:AddChild>
-    			<view:HBar>
-    				<view:BButton label="&lt;" toolTip="{_('Prev: auth name')}" click="currentState='authName'"/>
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: auth password')}" click="currentState='authPass'"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="authPass">
+			<mx:AddChild>
+				<view:HBar>
+					<view:BButton label="&lt;" toolTip="{_('Prev: auth name')}" click="currentState='authName'"/>
 					<view:TTextInput text="{connector.authPass}" toolTip="{_('Edit your auth password')}" displayAsPassword="true" 
 						change="connector.authPass=TTextInput(event.currentTarget).text" enter="currentState='displayName'"
-						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
-    				<view:BButton label="&gt;" toolTip="{_('Next: display name')}" click="currentState='displayName'"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="displayName">
-    		<mx:AddChild>
-    			<view:HBar>
-    				<view:BButton label="&lt;" toolTip="{_('Prev: auth password')}" click="currentState='authPass'"/>
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: display name')}" click="currentState='displayName'"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="displayName">
+			<mx:AddChild>
+				<view:HBar>
+					<view:BButton label="&lt;" toolTip="{_('Prev: auth password')}" click="currentState='authPass'"/>
 					<view:TTextInput text="{connector.displayName}" toolTip="{_('Edit your display name,\ne.g., Bob Smith')}" 
-						change="connector.displayName=TTextInput(event.currentTarget).text" enter="currentState='remember'"
-						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
-    				<view:BButton label="&gt;" toolTip="{_('Next: remember')}" click="currentState='remember'"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="remember">
-    		<mx:AddChild>
-    			<view:HBar>
-    				<view:BButton label="&lt;" toolTip="{_('Prev: auth pass')}" click="currentState='authPass'"/>
+						change="connector.displayName=TTextInput(event.currentTarget).text" enter="currentState='audioCodec'"
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: audio codecs')}" click="currentState='audioCodec'"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="audioCodec">
+			<mx:AddChild>
+				<view:HBar>
+					<view:BButton label="&lt;" toolTip="{_('Prev: display name')}" click="currentState='displayName'"/>
+					<view:CComboBox toolTip="{_('Select preferred microphone (audio) codec')}"
+						selectedItem="{connector.preferredAudioCodec}" dataProvider="{connector.audioCodecs}"
+						change="connector.preferredAudioCodec=ComboBox(event.currentTarget).selectedItem as String" enter="currentState='videoCodec'"
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: video codecs')}" click="currentState='videoCodec'"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="videoCodec">
+			<mx:AddChild>
+				<view:HBar>
+					<view:BButton label="&lt;" toolTip="{_('Prev: audio codecs')}" click="currentState='audioCodec'"/>
+					<view:CComboBox toolTip="{_('Select preferred camera (video) codec')}" 
+						selectedItem="{connector.preferredVideoCodec}" dataProvider="{connector.videoCodecs}"
+						change="connector.preferredVideoCodec=ComboBox(event.currentTarget).selectedItem as String" enter="currentState='remember'"
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: remember')}" click="currentState='remember'"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="remember">
+			<mx:AddChild>
+				<view:HBar>
+					<view:BButton label="&lt;" toolTip="{_('Prev: audio codecs')}" click="currentState='audioCodec'"/>
 					<mx:CheckBox label="{_('Remember me?')}" toolTip="{_('Save your credentials on this PC?')}" width="100%" labelPlacement="left" 
 						selected="{connector.remember}" change="connector.remember=CheckBox(event.currentTarget).selected; connector.save();"/>
-    				<view:BButton label="&gt;" toolTip="{_('Next: connect')}" click="connector.save(); connector.connect()"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="connecting">
-    		<mx:AddChild>
-    			<view:HBar>
+					<view:BButton label="&gt;" toolTip="{_('Next: connect')}" click="connector.save(); connector.connect()"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="connecting">
+			<mx:AddChild>
+				<view:HBar>
 					<view:TTextInput text="{_('connecting...')}" editable="false"/>
-    				<view:BButton label="X" toolTip="{_('Cancel')}" click="connector.disconnect()"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="connected">
-    		<mx:AddChild>
-    			<view:HBar>
+					<view:BButton label="X" toolTip="{_('Cancel')}" click="connector.disconnect()"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="connected">
+			<mx:AddChild>
+				<view:HBar>
 					<view:TTextInput id="dial" text="{connector.targetURL}" toolTip="{_('Type a SIP URL to dial out,\ne.g., sip:alice@iptel.org')}" 
 						enter="if (dial.text != '') connector.invite(dial.text)"
 						keyDown="if (event.keyCode == 38) connector.historyPrev(); else if (event.keyCode == 40) connector.historyNext();"
-						addedToStage="TTextInput(event.currentTarget).setFocus()"/>
-    				<view:BButton label="&gt;" toolTip="{_('Call out')}" enabled="{dial.text != ''}" 
-    					click="connector.invite(dial.text)"/>
-    				<view:BButton label="X" toolTip="{dial.text != '' ? _('Clear') : _('Disconnect')}" 
-    					click="if (dial.text == '') connector.disconnect(); else dial.text = '';"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="outbound">
-    		<mx:AddChild>
-    			<view:HBar>
+						addedToStage="addedHandler(event)"/>
+					<view:BButton label="&gt;" toolTip="{_('Call out')}" enabled="{dial.text != ''}" 
+						click="connector.invite(dial.text)"/>
+					<view:BButton label="X" toolTip="{dial.text != '' ? _('Clear') : _('Disconnect')}" 
+						click="if (dial.text == '') connector.disconnect(); else dial.text = '';"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="outbound">
+			<mx:AddChild>
+				<view:HBar>
 					<view:TTextInput text="{connector.targetURL}" editable="false" toolTip="{_('Calling out to\n{0}', connector.targetURL)}"/>
-    				<view:BButton label="&gt;" enabled="false" addedToStage="blink(event.currentTarget)"/>
-    				<view:BButton label="X" toolTip="{_('Cancel call')}" click="connector.bye()"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="inbound">
-    		<mx:AddChild>
-    			<view:HBar>
+					<view:BButton label="&gt;" enabled="false" addedToStage="blink(event.currentTarget)"/>
+					<view:BButton label="X" toolTip="{_('Cancel call')}" click="connector.bye()"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="inbound">
+			<mx:AddChild>
+				<view:HBar>
 					<view:TTextInput text="{connector.targetURL}" editable="false" toolTip="{_('Incoming call from\n{0}', connector.targetURL)}"/>
-    				<view:BButton label="&lt;" toolTip="{_('Accept call')}" click="connector.accept()" addedToStage="blink(event.currentTarget)"/>
-    				<view:BButton label="X" toolTip="{_('Reject call')}" click="connector.reject('Declined')"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    	
-    	<mx:State name="active" exitState="adv.visible=false">
-    		<mx:AddChild>
-    			<view:HBar addedToStage="autoHide(event.currentTarget)">
+					<view:BButton label="&lt;" toolTip="{_('Accept call')}" click="connector.accept()" addedToStage="blink(event.currentTarget)"/>
+					<view:BButton label="X" toolTip="{_('Reject call')}" click="connector.reject('Declined')"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+		
+		<mx:State name="active" exitState="adv.visible=false">
+			<mx:AddChild>
+				<view:HBar addedToStage="autoHide(event.currentTarget)">
 					<view:BButton label="T" toolTip="{_('Toggle phone dialpad')}" alpha="0.5" click="adv.visible = !adv.visible"/>
 					<view:BButton label="H" toggle="true" toolTip="{_('Toggle hold mode')}" alpha="0.5" click="connector.sendHold(event.currentTarget.selected)"/>
 					<mx:Spacer width="100%"/>
-    				<view:BButton label="O" toolTip="{_('Toggle local and remote video')}" alpha="0.5" click="video.next()"/>
-    				<view:BButton label="+" toolTip="{_('Toggle full Screen')}" alpha="0.5" click="fullScreen()"/>
-    				<view:BButton label="X" toolTip="{_('Terminate call')}" alpha="0.5" click="connector.bye()"/>
-    			</view:HBar>
-    		</mx:AddChild>
-    	</mx:State>
-    </mx:states>
+					<view:BButton label="O" toolTip="{_('Toggle local and remote video')}" alpha="0.5" click="video.next()"/>
+					<view:BButton label="+" toolTip="{_('Toggle full Screen')}" alpha="0.5" click="fullScreen()"/>
+					<view:BButton label="X" toolTip="{_('Terminate call')}" alpha="0.5" click="connector.bye()"/>
+				</view:HBar>
+			</mx:AddChild>
+		</mx:State>
+	</mx:states>
 
 	<!--
 	There is a button on top-left corner of the View, which allows showing and
 	hiding the dial-pad.
-    <mx:Canvas bottom="0" left="0" width="10" height="10" click="adv.visible = !adv.visible"/>
+	<mx:Canvas bottom="0" left="0" width="10" height="10" click="adv.visible = !adv.visible"/>
 	-->
-    
-    <!--
-    The dialpad is shown based on the hidden button click as mentioned above.
-    -->
-    <mx:Canvas id="adv" visible="false" horizontalCenter="0" verticalCenter="0" autoLayout="true"
-    	show="if (dial != null &amp;&amp; dial.text.substr(0,4) != 'tel:') dial.text = 'tel:'">
-    	<view:Dialpad dialpadKey="dialpadHandler(event)"/>
-    </mx:Canvas>
-    
+	
+	<!--
+	The dialpad is shown based on the hidden button click as mentioned above.
+	-->
+	<mx:Canvas id="adv" visible="false" horizontalCenter="0" verticalCenter="0" autoLayout="true"
+		show="if (dial != null &amp;&amp; dial.text.substr(0,4) != 'tel:') dial.text = 'tel:'">
+		<view:Dialpad dialpadKey="dialpadHandler(event)"/>
+	</mx:Canvas>
+	
 </mx:Canvas>
