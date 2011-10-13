@@ -1,4 +1,5 @@
 # Copyright (c) 2007-2009, Mamta Singh. All rights reserved. see README for details.
+# Copyright (c) 2010-2011, Kundan Singh.
 
 '''
 This is a simple implementation of a Flash RTMP server to accept connections and stream requests. The module is organized as follows:
@@ -169,8 +170,13 @@ class Protocol(object):
         self.readChunkSize = self.writeChunkSize = Protocol.DEFAULT_CHUNK_SIZE
         self.readWinSize0, self.readWinSize, self.writeWinSize0, self.writeWinSize = 0L, self.READ_WIN_SIZE, 0L, self.WRITE_WIN_SIZE
         self.nextChannelId = Protocol.PROTOCOL_CHANNEL_ID + 1
+        self._time0 = time.time()
         self.writeQueue = multitask.Queue()
             
+    @property
+    def relativeTime(self):
+        return int(1000*(time.time() - self._time0))
+    
     def messageReceived(self, msg): # override in subclass
         yield
             
@@ -189,7 +195,7 @@ class Protocol(object):
             if type == 3: # client expects a response when it sends set buffer length
                 streamId, bufferTime = struct.unpack('>II', data)
                 response = Message()
-                response.type, response.data = Message.USER_CONTROL, struct.pack('>HI', 0, streamId)
+                response.time, response.type, response.data = self.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 0, streamId)
                 yield self.writeMessage(response)
         yield
         
@@ -344,7 +350,7 @@ class Protocol(object):
                 if self.stream.bytesRead > (self.readWinSize0 + self.readWinSize):
                     self.readWinSize0 = self.stream.bytesRead
                     ack = Message()
-                    ack.type, ack.data = Message.ACK, struct.pack('>L', self.readWinSize0)
+                    ack.time, ack.type, ack.data = self.relativeTime, Message.ACK, struct.pack('>L', self.readWinSize0)
                     yield self.writeMessage(ack)
                     
             if len(data) < header.size: # we don't have all data
@@ -424,9 +430,9 @@ class Protocol(object):
 
 class Command(object):
     ''' Class for command / data messages'''
-    def __init__(self, type=Message.RPC, name=None, id=None, cmdData=None, args=[]):
+    def __init__(self, type=Message.RPC, name=None, id=None, tm=0, cmdData=None, args=[]):
         '''Create a new command with given type, name, id, cmdData and args list.'''
-        self.type, self.name, self.id, self.cmdData, self.args = type, name, id, cmdData, args[:]
+        self.type, self.name, self.id, self.time, self.cmdData, self.args = type, name, id, tm, cmdData, args[:]
         
     def __repr__(self):
         return ("<Command type=%r name=%r id=%r data=%r args=%r>" % (self.type, self.name, self.id, self.cmdData, self.args))
@@ -455,6 +461,7 @@ class Command(object):
 
         inst = cls()
         inst.type = message.type
+        inst.time = message.time
         inst.name = amfReader.read() # first field is command name
 
         try:
@@ -474,6 +481,7 @@ class Command(object):
         msg = Message()
         assert self.type
         msg.type = self.type
+        msg.time = self.time
         output = amf.BytesIO()
         amfWriter = amf.AMF0(output)
         amfWriter.write(self.name)
@@ -578,11 +586,12 @@ class FLV(object):
         '''A generator to periodically read the file and dispatch them to the stream. The supplied stream
         object must have a send(Message) method and id and client properties.'''
         if _debug: print 'reader started'
+        yield
         try:
             while self.fp is not None:
                 bytes = self.fp.read(11)
                 if len(bytes) == 0:
-                    response = Command(name='onStatus', id=stream.id, args=[amf.Object(level='status',code='NetStream.Play.Stop', description='File ended', details=None)])
+                    response = Command(name='onStatus', id=stream.id, tm=stream.client.relativeTime, args=[amf.Object(level='status',code='NetStream.Play.Stop', description='File ended', details=None)])
                     yield stream.send(response.toMessage())
                     break
                 type, len0, len1, ts0, ts1, ts2, sid0, sid1 = struct.unpack('>BBHBHBBH', bytes)
@@ -695,8 +704,7 @@ class Client(Protocol):
                 self.objectEncoding = self.agent.objectEncoding if hasattr(self.agent, 'objectEncoding') else 0.0
                 yield self.server.queue.put((self, cmd.args)) # new connection
             elif cmd.name == 'createStream':
-                response = Command(name='_result', id=cmd.id, type=self.rpc, \
-                                   args=[self._nextStreamId])
+                response = Command(name='_result', id=cmd.id, tm=self.relativeTime, type=self.rpc, args=[self._nextStreamId])
                 yield self.writeMessage(response.toMessage())
                 
                 stream = Stream(self) # create a stream object
@@ -754,7 +762,7 @@ class Client(Protocol):
     def call(self, method, *args):
         '''Call a (callback) method on the client.'''
         cmd = Command()
-        cmd.id, cmd.name, cmd.type = self._nextCallId, method, self.rpc
+        cmd.id, cmd.time, cmd.name, cmd.type = self._nextCallId, self.relativeTime, method, self.rpc
         cmd.args, cmd.cmdData = args, None
         self._nextCallId += 1
         if _debug: print 'Client.call method=', method, 'args=', args, ' msg=', cmd.toMessage()
@@ -942,11 +950,11 @@ class FlashServer(object):
                         else: inst = app()
                         
                         win_ack = Message()
-                        win_ack.type, win_ack.data = Message.WIN_ACK_SIZE, struct.pack('>L', client.writeWinSize)
+                        win_ack.time, win_ack.type, win_ack.data = client.relativeTime, Message.WIN_ACK_SIZE, struct.pack('>L', client.writeWinSize)
                         yield client.writeMessage(win_ack)
                         
 #                        set_peer_bw = Message()
-#                        set_peer_bw.type, set_peer_bw.data = Message.SET_PEER_BW, struct.pack('>LB', client.writeWinSize, 1)
+#                        set_peer_bw.time, set_peer_bw.type, set_peer_bw.data = client.relativeTime, Message.SET_PEER_BW, struct.pack('>LB', client.writeWinSize, 1)
 #                        client.writeMessage(set_peer_bw)
                         
                         try: 
@@ -1035,7 +1043,7 @@ class FlashServer(object):
                 except:
                     if _debug: print 'Client.call exception', (sys and sys.exc_info() or None) 
                     code, args = '_error', dict()
-                res.id, res.name, res.type = cmd.id, code, client.rpc
+                res.id, res.time, res.name, res.type = cmd.id, client.relativeTime, code, client.rpc
                 res.args, res.cmdData = args, None
                 if _debug: print 'Client.call method=', code, 'args=', args, ' msg=', res.toMessage()
                 yield client.writeMessage(res.toMessage())
@@ -1094,11 +1102,11 @@ class FlashServer(object):
             if stream.mode in ('record', 'append'): 
                 stream.recordfile = FLV().open(path, stream.mode)
             # elif stream.mode == 'live': FLV().delete(path) # TODO: this is commented out to avoid accidental delete
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='status', code='NetStream.Publish.Start', description='', details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='status', code='NetStream.Publish.Start', description='', details=None)])
             yield stream.send(response)
         except ValueError, E: # some error occurred. inform the app.
             if _debug: print 'error in publishing stream', str(E)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='error',code='NetStream.Publish.BadName',description=str(E),details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='error',code='NetStream.Publish.BadName',description=str(E),details=None)])
             yield stream.send(response)
 
     def playhandler(self, stream, cmd):
@@ -1111,20 +1119,42 @@ class FlashServer(object):
                 inst.players[name] = [] # initialize the players for this stream name
             if stream not in inst.players[name]: # store the stream as players of this name
                 inst.players[name].append(stream)
+            task = None
             if start >= 0 or start == -2 and name not in inst.publishers:
                 path = getfilename(stream.client.path, stream.name, self.root)
                 if os.path.exists(path):
                     stream.playfile = FLV().open(path)
                     if start > 0: stream.playfile.seek(start)
-                    multitask.add(stream.playfile.reader(stream))
+                    task = stream.playfile.reader(stream)
                 elif start >= 0: raise ValueError, 'Stream name not found'
             if _debug: print 'playing stream=', name, 'start=', start
             inst.onPlay(stream.client, stream)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='status',code='NetStream.Play.Start', description=stream.name, details=None)])
+            
+#            m0 = Message() # SetChunkSize
+#            m0.time, m0.type, m0.data = stream.client.relativeTime, Message.CHUNK_SIZE, struct.pack('>L', stream.client.writeChunkSize)
+#            yield stream.client.writeMessage(m0)
+            
+#            m1 = Message() # UserControl/StreamIsRecorded
+#            m1.time, m1.type, m1.data = stream.client.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 4, stream.id)
+#            yield stream.client.writeMessage(m1)
+            
+            m2 = Message() # UserControl/StreamBegin
+            m2.time, m2.type, m2.data = stream.client.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 0, stream.id)
+            yield stream.client.writeMessage(m2)
+            
+#            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='status',code='NetStream.Play.Reset', description=stream.name, details=None)])
+#            yield stream.send(response)
+            
+            response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='status',code='NetStream.Play.Start', description=stream.name, details=None)])
             yield stream.send(response)
+            
+#            response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='status',code='NetStream.Play.PublishNotify', description=stream.name, details=None)])
+#            yield stream.send(response)
+            
+            if task is not None: multitask.add(task)
         except ValueError, E: # some error occurred. inform the app.
             if _debug: print 'error in playing stream', str(E)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='error',code='NetStream.Play.StreamNotFound',description=str(E),details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='error',code='NetStream.Play.StreamNotFound',description=str(E),details=None)])
             yield stream.send(response)
             
     def seekhandler(self, stream, cmd):
@@ -1134,11 +1164,11 @@ class FlashServer(object):
             if stream.playfile is None or stream.playfile.type != 'read': 
                 raise ValueError, 'Stream is not seekable'
             stream.playfile.seek(offset)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='status',code='NetStream.Seek.Notify', description=stream.name, details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='status',code='NetStream.Seek.Notify', description=stream.name, details=None)])
             yield stream.send(response)
         except ValueError, E: # some error occurred. inform the app.
             if _debug: print 'error in seeking stream', str(E)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='error',code='NetStream.Seek.Failed',description=str(E),details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='error',code='NetStream.Seek.Failed',description=str(E),details=None)])
             yield stream.send(response)
             
     def mediahandler(self, stream, message):
