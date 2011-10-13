@@ -141,40 +141,39 @@ videos, such that VideoPublish is picture-in-picture inside VideoPlay view.
 						var mic:Microphone = Microphone.getMicrophone(-1);
 					}
 					
-					if (connector.preferredAudioCodec == "Speex/16000" || connector.preferredAudioCodec == "Speex/8000") {
+					if (connector.selectedAudio == "speex" || connector.selectedAudio == "default") {
 						mic['codec'] = "Speex";
 						mic.rate = 16;
 						mic['framesPerPacket'] = 1;
 						mic['encodeQuality'] = 6;
 					}
-					else if (connector.preferredAudioCodec == "Default") {
-						mic['codec'] = "Nellymoser";
-						mic.rate = 11;
-						mic['framesPerPacket'] = 2;
-					}
-					
 					if (CONFIG::player11) {
-						if (connector.preferredAudioCodec == "pcmu" || connector.preferredAudioCodec == "pcma") {
-							mic['codec'] = connector.preferredAudioCodec;
+						if (connector.selectedAudio == "pcmu" || connector.selectedAudio == "pcma") {
+							mic['codec'] = connector.selectedAudio;
 							mic.rate = 8;
 							mic['framesPerPacket'] = 2;
 						}
 					}
-						
-					connector.publishStream.attachAudio(mic);
 					
-					if (CONFIG::player11) {
-						var s:flash.media.VideoStreamSettings = (connector.preferredVideoCodec == "Default" ? new flash.media.VideoStreamSettings() : new flash.media.H264VideoStreamSettings());
-						s.setMode(240, 180, 12);
-						s.setQuality(0, 80);
-						if (connector.preferredVideoCodec == "H264Avc/baseline" || connector.preferredVideoCodec == "H264Avc/main") {
-							var profile:String = (connector.preferredVideoCodec == "H264Avc/main" ? flash.media.H264Profile.MAIN : flash.media.H264Profile.BASELINE);
-							flash.media.H264VideoStreamSettings(s).setProfileLevel(profile, flash.media.H264Level.LEVEL_2);
-						}
-						connector.publishStream.videoStreamSettings = s;
+					if (connector.selectedAudio != null) {
+						connector.publishStream.attachAudio(mic);
 					}
 					
-					connector.publishStream.attachCamera(Camera.getCamera());
+					if (CONFIG::player11) {
+						var s:flash.media.VideoStreamSettings = (connector.selectedVideo == "h264" ? new flash.media.H264VideoStreamSettings(): new flash.media.VideoStreamSettings());
+						s.setMode(240, 180, 12);
+						s.setQuality(0, 80);
+						if (connector.selectedAudio == "h264") {
+							flash.media.H264VideoStreamSettings(s).setProfileLevel(flash.media.H264Profile.BASELINE, flash.media.H264Level.LEVEL_2);
+						}
+						if (connector.selectedAudio != null) {
+							connector.publishStream.videoStreamSettings = s;
+						}
+					}
+					
+					if (connector.selectedAudio != null) {
+						connector.publishStream.attachCamera(Camera.getCamera());
+					}
 				}
 			}
 			

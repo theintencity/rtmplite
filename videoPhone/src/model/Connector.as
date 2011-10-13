@@ -47,7 +47,7 @@ package model
 		 * properties are used in the View to display and be editable. These are also stored in
 		 * the local shared object if user chose to remember his configuration. 
 		 */
-		public static const allowedParameters:Array = ["signupURL", "gatewayURL", "sipURL", "authName", "authPass", "displayName", "targetURL", "preferredAudioCodec", "preferredVideoCodec"];
+		public static const allowedParameters:Array = ["signupURL", "gatewayURL", "sipURL", "authName", "authPass", "displayName", "targetURL", "codecs"];
 		
 		/**
 		 * Maximum size of the call history in terms of number of last unique dialed or received
@@ -172,29 +172,26 @@ package model
 		
 		[Bindable]
 		/**
-		 * The preferred audio codec must be set before register.
-		 * Default is "speex/16000".
+		 * The comma separated list of supported codecs.
+		 * Default depends on Flash Player version, and is either
+		 * (version 10-) "wideband narrowband ulaw alaw dtmf flv"
+		 * or (version 11+) "wideband narrowband pcmu pcma ulaw alaw dtmf h264 flv"
 		 */
-		public var preferredAudioCodec:String = "Speex/16000";
+		public var codecs:String = null;
 		
 		[Bindable]
 		/**
-		 * The preferred video codec must be set before register.
-		 * Default is "Sorenson".
+		 * The selected audio codec as indicated by the gateway after capability negotiation.
+		 * Possible values are null, "speex", "default", "pcmu", "pcma".
 		 */
-		public var preferredVideoCodec:String = "Default";
+		public var selectedAudio:String = null;
 		
 		[Bindable]
 		/**
-		 * The list of audio codecs.
+		 * The selected video codec as indicated by the gateway after capability negotiation.
+		 * Possible values are null, "default", "h264".
 		 */
-		public var audioCodecs:ArrayCollection = new ArrayCollection();
-		
-		[Bindable]
-		/**
-		 * The list of video codecs.
-		 */
-		public var videoCodecs:ArrayCollection = new ArrayCollection();
+		public var selectedVideo:String = null;
 		
 		//--------------------------------------
 		// CONSTRUCTOR
@@ -206,28 +203,25 @@ package model
 		 */
 		public function Connector()
 		{
-			audioCodecs.addItem("Default");
-			audioCodecs.addItem("Speex/16000");
-			audioCodecs.addItem("Speex/8000");
-			if (CONFIG::player11) {
-				audioCodecs.addItem("pcmu");
-				audioCodecs.addItem("pcma");
-			}
-			
-			videoCodecs.addItem("Default");
-			if (CONFIG::player11) {
-				videoCodecs.addItem("H264Avc/baseline");
-				videoCodecs.addItem("H264Avc/main");
-			}
-			
 			so = SharedObject.getLocal("phone");
 			load();
 			
-			// if stored value is not in the platform, change to default
-			if (audioCodecs.getItemIndex(this.preferredAudioCodec) < 0)
-				this.preferredAudioCodec = "Speex/16000";
-			if (videoCodecs.getItemIndex(this.preferredVideoCodec) < 0)
-				this.preferredVideoCodec = "Default";
+			if (!codecs) {
+				if (CONFIG::player11) {
+					codecs = "wideband narrowband pcmu pcma ulaw alaw dtmf h264 flv";
+				}
+				else {
+					codecs = "wideband narrowband ulaw alaw dtmf flv";
+				}
+			}
+			else {
+				if (!CONFIG::player11) {
+					var parts:Array = codecs.split(" ");
+					if (parts.indexOf("pcmu") >= 0 || parts.indexOf("pcma") >= 0 || parts.indexOf("h264") >= 0) {
+						codecs = "wideband narrowband ulaw alaw dtmf flv"; // reset to default
+					}
+				}
+			}
 		}
 		
 		//--------------------------------------
@@ -375,9 +369,14 @@ package model
 		public function accept():void
 		{
 			if (currentState == INBOUND) {
-				currentState = ACTIVE;
-				if (nc != null) 
-					nc.call("accept", null);
+				if (nc != null) {
+					var args:Array = ["accept", null];
+					for each (var part:String in this.codecs.split(" ")) {
+						args.push(part);
+					}
+					nc.call.apply(nc, args);
+					//nc.call("accept", null, "wideband", "narrowband", "pcmu", "pcma", "alaw", "ulaw", "dtmf", "h264", "flv");
+				}
 			}
 		}
 
@@ -445,11 +444,14 @@ package model
 		 * The callback is invoked by the gateway to indicate that an outbound call 
 		 * is accepted by the remote party. The connector changes the call state to 'active'.
 		 */
-		public function accepted():void
+		public function accepted(audioCodec:String=null, videoCodec:String=null):void
 		{
-			trace("accepted");
-			if (currentState == OUTBOUND)
+			trace("accepted audioCodec=" + audioCodec + " videoCodec=" + videoCodec);
+			if (currentState == OUTBOUND || currentState == INBOUND) {
+				this.selectedAudio = audioCodec;
+				this.selectedVideo = videoCodec;
 				currentState = ACTIVE;
+			}
 		}
 		
 		/**
@@ -670,7 +672,7 @@ package model
 				
 				var url:String = this.gatewayURL + "/" + (this.sipURL.substr(0, 4) == "sip:" ? this.sipURL.substr(4) : this.sipURL); 
 				trace('connect() ' + url);
-				nc.connect(url, this.authName, this.authPass, this.displayName, this.preferredAudioCodec, this.preferredVideoCodec);
+				nc.connect(url, this.authName, this.authPass, this.displayName);
 			}
 		}
 		
@@ -743,7 +745,12 @@ package model
 				
 				if (nc != null) {
 					currentState = OUTBOUND;
-					nc.call("invite", null, this.targetURL);
+					var args:Array = ["invite", null, this.targetURL];
+					for each (var part:String in this.codecs.split(" ")) {
+						args.push(part);
+					}
+					nc.call.apply(nc, args);
+					//nc.call("invite", null, this.targetURL, "wideband", "narrowband", "pcmu", "pcma", "alaw", "ulaw", "dtmf", "h264", "flv");
 				}
 				else {
 					this.status = _("Must be connected to invite");

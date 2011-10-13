@@ -312,33 +312,19 @@ appears on top, and the video part which takes almost whole of the view.
 				<view:HBar>
 					<view:BButton label="&lt;" toolTip="{_('Prev: auth password')}" click="currentState='authPass'"/>
 					<view:TTextInput text="{connector.displayName}" toolTip="{_('Edit your display name,\ne.g., Bob Smith')}" 
-						change="connector.displayName=TTextInput(event.currentTarget).text" enter="currentState='audioCodec'"
+						change="connector.displayName=TTextInput(event.currentTarget).text" enter="currentState='codecs'"
 						addedToStage="addedHandler(event)"/>
-					<view:BButton label="&gt;" toolTip="{_('Next: audio codecs')}" click="currentState='audioCodec'"/>
+					<view:BButton label="&gt;" toolTip="{_('Next: codecs')}" click="currentState='codecs'"/>
 				</view:HBar>
 			</mx:AddChild>
 		</mx:State>
 		
-		<mx:State name="audioCodec">
+		<mx:State name="codecs">
 			<mx:AddChild>
 				<view:HBar>
 					<view:BButton label="&lt;" toolTip="{_('Prev: display name')}" click="currentState='displayName'"/>
-					<view:CComboBox toolTip="{_('Select preferred microphone (audio) codec')}"
-						selectedItem="{connector.preferredAudioCodec}" dataProvider="{connector.audioCodecs}"
-						change="connector.preferredAudioCodec=ComboBox(event.currentTarget).selectedItem as String" enter="currentState='videoCodec'"
-						addedToStage="addedHandler(event)"/>
-					<view:BButton label="&gt;" toolTip="{_('Next: video codecs')}" click="currentState='videoCodec'"/>
-				</view:HBar>
-			</mx:AddChild>
-		</mx:State>
-		
-		<mx:State name="videoCodec">
-			<mx:AddChild>
-				<view:HBar>
-					<view:BButton label="&lt;" toolTip="{_('Prev: audio codecs')}" click="currentState='audioCodec'"/>
-					<view:CComboBox toolTip="{_('Select preferred camera (video) codec')}" 
-						selectedItem="{connector.preferredVideoCodec}" dataProvider="{connector.videoCodecs}"
-						change="connector.preferredVideoCodec=ComboBox(event.currentTarget).selectedItem as String" enter="currentState='remember'"
+					<view:TTextInput text="{connector.codecs}" toolTip="{_('Edit supported list of codecs in preference order')}" 
+						change="connector.codecs=TTextInput(event.currentTarget).text" enter="currentState='remember'"
 						addedToStage="addedHandler(event)"/>
 					<view:BButton label="&gt;" toolTip="{_('Next: remember')}" click="currentState='remember'"/>
 				</view:HBar>
@@ -348,7 +334,7 @@ appears on top, and the video part which takes almost whole of the view.
 		<mx:State name="remember">
 			<mx:AddChild>
 				<view:HBar>
-					<view:BButton label="&lt;" toolTip="{_('Prev: audio codecs')}" click="currentState='audioCodec'"/>
+					<view:BButton label="&lt;" toolTip="{_('Prev: audio codecs')}" click="currentState='codecs'"/>
 					<mx:CheckBox label="{_('Remember me?')}" toolTip="{_('Save your credentials on this PC?')}" width="100%" labelPlacement="left" 
 						selected="{connector.remember}" change="connector.remember=CheckBox(event.currentTarget).selected; connector.save();"/>
 					<view:BButton label="&gt;" toolTip="{_('Next: connect')}" click="connector.save(); connector.connect()"/>
