@@ -1254,6 +1254,7 @@ class Context(object):
             if self.session is None and self.outgoing is not None: # pending outgoing invite
                 if _debug: print '  cancel outbound invite'
                 self.outgoing.kill()
+                self.outgoing = None
             elif self.session:
                 self._cleanup()
         except:
