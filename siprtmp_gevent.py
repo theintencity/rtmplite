@@ -1337,7 +1337,7 @@ class Context(object):
     
     def sip_data(self, fmt, data): # handle media stream received from SIP
         try:
-            p = RTP(data) if not isinstance(data, RTP) else data
+            p = rfc3550.RTP(data) if not isinstance(data, rfc3550.RTP) else data
             if _debug: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
             if self.media:
                 messages = self.media.rtp2rtmp(fmt, p)
