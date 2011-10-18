@@ -521,7 +521,7 @@ from amf import AMF0
 
 try:
     from app.voip import User, Session, MediaSession
-    from std.rfc3550 import RTP
+    from std.rfc3550 import RTP, Network as RTPNetwork
     from std.rfc2396 import Address
     from std.rfc4566 import SDP, attrs as format
     from std.rfc2833 import DTMF
@@ -610,7 +610,7 @@ class Context(object):
                     try: dest = Address(dest) # first try the default scheme supplied by application
                     except: dest = Address(self.user.address.uri.scheme + ':' + dest) # otherwise scheme is picked from registered URI
                     if _debug: print '  create media context'
-                    media = MediaContext(self, None, agent.int_ip, self._preferred, *args) # create a media context for the call
+                    media = MediaContext(self, None, agent.int_ip, self._preferred, RTPNetwork, *args) # create a media context for the call
                     self.outgoing = self.user.connect(dest, sdp=media.session.mysdp, provisional=True)
                     try:
                         session, reason = yield self.outgoing
@@ -647,7 +647,7 @@ class Context(object):
         incoming = self.incoming; self.incoming = reason = media = None # clear self.incoming, and store value in incoming
         try:
             if self.user is not None and incoming is not None:
-                self.media = MediaContext(self, incoming[1].request, agent.int_ip, self._preferred, *args) # create a media context for the call
+                self.media = MediaContext(self, incoming[1].request, agent.int_ip, self._preferred, RTPNetwork, *args) # create a media context for the call
                 if self.media.session.mysdp is None:
                     reason = '488 Incompatible SDP'
                 else:
@@ -839,14 +839,15 @@ class MediaContext(object):
     '''MediaContext stores the media related session and context for any transcoding for the gateway.
     It is independent of multitask or gevent and reused by gevent version.
     '''
-    def __init__(self, context, request=None, listen_ip=None, rate='wideband', *args):
+    def __init__(self, context, request=None, listen_ip=None, rate='wideband', NetworkClass=None, *args):
+        if not NetworkClass: raise ValueError('must supply the RTP NetworkClass')
         self._context, self._rate, self._codecs = context, rate, args
         self._flv, self._h264, self._touchtone, self._narrowband, self._wideband, self._pcmu, self._pcma = format(pt=-1, name='x-flv', rate=90000), format(pt=-1, name='h264', rate=90000), format(pt=-1, name='telephone-event', rate=8000), format(pt=-1, name='speex', rate=8000), format(pt=-1, name='speex', rate=16000), format(pt=0, name='pcmu', rate=8000), format(pt=8, name='pcma', rate=8000)
         self._audio, self._video = self._getMediaStreams()
         
         self._reset()
         streams = [x for x in [self._audio, self._video] if x]
-        self.session = MediaSession(app=context, streams=streams, request=request, listen_ip=listen_ip) # create the actual MediaSession
+        self.session = MediaSession(app=context, streams=streams, request=request, listen_ip=listen_ip, NetworkClass=NetworkClass) # create the actual MediaSession
 
     def close(self):
         if self.session:

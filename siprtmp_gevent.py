@@ -38,6 +38,7 @@ from gevent.queue import Queue, Empty
 import os, sys, traceback, time, struct, socket, random, amf, hashlib, hmac, random
 from struct import pack, unpack
 from rtmp import Header, Message, Command, App, getfilename, Protocol
+from siprtmp import MediaContext
 
 try:
     from std import rfc3261, rfc3264, rfc3550, rfc2396, rfc4566, rfc2833, kutil
@@ -94,9 +95,14 @@ class FlashClient(object):
         self.readChunkSize = self.writeChunkSize = self.DEFAULT_CHUNK_SIZE
         self.readWinSize0, self.readWinSize, self.writeWinSize0, self.writeWinSize = 0L, self.READ_WIN_SIZE, 0L, self.WRITE_WIN_SIZE
         self.nextChannelId = self.PROTOCOL_CHANNEL_ID + 1
+        self._time0 = time.time()
         self.path, self.agent, self.streams, self._nextCallId, self._nextStreamId, self.objectEncoding, self._rpc = \
           None,      None,         {},           2,                1,                  0.0,             Message.RPC
         
+    @property
+    def relativeTime(self):
+        return int(1000*(time.time() - self._time0))
+    
     def send(self, data):
         if self.sock is not None and data is not None:
             self.sock.sendall(data)
@@ -181,7 +187,7 @@ class FlashClient(object):
                     if self.bytesRead > (self.readWinSize0 + self.readWinSize):
                         self.readWinSize0 = self.bytesRead
                         ack = Message()
-                        ack.type, ack.data = Message.ACK, struct.pack('>L', self.readWinSize0)
+                        ack.time, ack.type, ack.data = self.relativeTime, Message.ACK, struct.pack('>L', self.readWinSize0)
                         self.writeMessage(ack)
                     
                 if len(data) < header.size: # we don't have all data
@@ -258,7 +264,7 @@ class FlashClient(object):
             if type == 3: # client expects a response when it sends set buffer length
                 streamId, bufferTime = struct.unpack('>II', data)
                 response = Message()
-                response.type, response.data = Message.USER_CONTROL, struct.pack('>HI', 0, streamId)
+                response.time, response.type, response.data = self.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 0, streamId)
                 self.writeMessage(response)
         else:
             if _debug: print 'ignoring protocol message type', msg.type
@@ -273,7 +279,7 @@ class FlashClient(object):
                 self._rpc = Message.RPC if self.objectEncoding == 0.0 else Message.RPC3
                 self.onConnect(cmd.args) # new connection
             elif cmd.name == 'createStream':
-                response = Command(name='_result', id=cmd.id, type=self._rpc, args=[self._nextStreamId])
+                response = Command(name='_result', id=cmd.id, tm=self.relativeTime, type=self._rpc, args=[self._nextStreamId])
                 self.writeMessage(response.toMessage())
                 stream = self.createStream()
                 self.onCreateStream(stream) # also notify others of our new stream
@@ -337,7 +343,7 @@ class FlashClient(object):
     def call(self, method, *args):
         '''Call a (callback) method on the client.'''
         cmd = Command()
-        cmd.id, cmd.name, cmd.type = self._nextCallId, method, self._rpc
+        cmd.id, cmd.time, cmd.name, cmd.type = self._nextCallId, self.relativeTime, method, self._rpc
         cmd.args, cmd.cmdData = args, None
         self._nextCallId += 1
         if _debug: print 'rtmp.call method=', method, 'args=', args, ' msg=', cmd.toMessage()
@@ -372,11 +378,11 @@ class FlashClient(object):
         else: inst = app()
         
         win_ack = Message()
-        win_ack.type, win_ack.data = Message.WIN_ACK_SIZE, struct.pack('>L', self.writeWinSize)
+        win_ack.time, win_ack.type, win_ack.data = self.relativeTime, Message.WIN_ACK_SIZE, struct.pack('>L', self.writeWinSize)
         self.writeMessage(win_ack)
         
 #        set_peer_bw = Message()
-#        set_peer_bw.type, set_peer_bw.data = Message.SET_PEER_BW, struct.pack('>LB', client.writeWinSize, 1)
+#        set_peer_bw.time, set_peer_bw.type, set_peer_bw.data = self.relativeTime, Message.SET_PEER_BW, struct.pack('>LB', client.writeWinSize, 1)
 #        self.writeMessage(set_peer_bw)
         
         try: 
@@ -413,7 +419,7 @@ class FlashClient(object):
                 except:
                     if _debug: print 'rtmp.call exception', (sys and sys.exc_info() or None) 
                     code, args = '_error', dict()
-                res.id, res.name, res.type = cmd.id, code, self._rpc
+                res.id, res.time, res.name, res.type = cmd.id, self.relativeTime, code, self._rpc
                 res.args, res.cmdData = args, None
                 if _debug: print 'rtmp.call method=', code, 'args=', args, ' msg=', res.toMessage()
                 self.writeMessage(res.toMessage())
@@ -470,11 +476,11 @@ class FlashClient(object):
             if stream.mode in ('record', 'append'): 
                 raise ValueError, 'Recording not implemented'
             # elif stream.mode == 'live': FLV().delete(path) # TODO: this is commented out to avoid accidental delete
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='status', code='NetStream.Publish.Start', description='', details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=self.relativeTime, args=[amf.Object(level='status', code='NetStream.Publish.Start', description='', details=None)])
             self.writeMessage(response.toMessage(), stream)
         except ValueError, E: # some error occurred. inform the app.
             if _debug: print 'error in publishing stream', str(E)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='error',code='NetStream.Publish.BadName',description=str(E),details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=self.relativeTime, args=[amf.Object(level='error',code='NetStream.Publish.BadName',description=str(E),details=None)])
             self.writeMessage(response.toMessage(), stream)
 
     def onStreamPlay(self, stream, cmd):
@@ -497,11 +503,11 @@ class FlashClient(object):
             if start >= 0: raise ValueError, 'Stream name not found'
             if _debug: print 'playing stream=', name, 'start=', start
             inst.onPlay(self, stream)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='status',code='NetStream.Play.Start', description=stream.name, details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=self.relativeTime, args=[amf.Object(level='status',code='NetStream.Play.Start', description=stream.name, details=None)])
             self.writeMessage(response.toMessage(), stream)
         except ValueError, E: # some error occurred. inform the app.
             if _debug: print 'error in playing stream', str(E)
-            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='error',code='NetStream.Play.StreamNotFound',description=str(E),details=None)])
+            response = Command(name='onStatus', id=cmd.id, tm=self.relativeTime, args=[amf.Object(level='error',code='NetStream.Play.StreamNotFound',description=str(E),details=None)])
             self.writeMessage(response.toMessage(), stream)
             
 #    def onStreamSeek(self, stream, cmd):
@@ -511,11 +517,11 @@ class FlashClient(object):
 #            if stream.playfile is None or stream.playfile.type != 'read': 
 #                raise ValueError, 'Stream is not seekable'
 #            stream.playfile.seek(offset)
-#            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='status',code='NetStream.Seek.Notify', description=stream.name, details=None)])
+#            response = Command(name='onStatus', id=cmd.id, tm=self.relativeTime, args=[amf.Object(level='status',code='NetStream.Seek.Notify', description=stream.name, details=None)])
 #            self.writeMessage(response, stream)
 #        except ValueError, E: # some error occurred. inform the app.
 #            if _debug: print 'error in seeking stream', str(E)
-#            response = Command(name='onStatus', id=cmd.id, args=[amf.Object(level='error',code='NetStream.Seek.Failed',description=str(E),details=None)])
+#            response = Command(name='onStatus', id=cmd.id, tm=self.relativeTime, args=[amf.Object(level='error',code='NetStream.Seek.Failed',description=str(E),details=None)])
 #            self.writeMessage(response, stream)
             
     def onStreamMessage(self, stream, message):
@@ -1111,17 +1117,13 @@ class Context(object):
     def __init__(self, app, client):
         self.app, self.client = app, client
         self.user = self.session = self.outgoing = self.incoming = None # SIP User and session for this connection
-        self.publish_stream = self.play_stream = None # streams on RTMP side.
+        self.publish_stream = self.play_stream = self.media = self._preferred = None # streams on RTMP side, media context and preferred rate
         self._gin = self._gss = None  # generators that needs to be closed on unregister
-        self._ts = self._txseq = self._rxseq = self._rxlen = 0
-        self._time, self._rxchunks = time.time(), []
-        self._audio, self._video = rfc4566.attrs(pt=-1, name='speex', rate=16000), rfc4566.attrs(pt=-1, name='x-flv', rate=90000)
-        self._touchtone, self._transcode = rfc4566.attrs(pt=-1, name='telephone-event', rate=8000), None
         if not hasattr(self.app, '_ports'): self.app._ports = {}     # used to persist SIP port wrt registering URI. map: uri=>port
         
     def rtmp_register(self, login=None, passwd='', display=None, rate='wideband'):
         scheme, ignore, aor = self.client.path.partition('/')
-        if rate == 'narrowband': self._audio.rate = 8000
+        self._preferred = rate
         if _debug: print 'rtmp-register scheme=', scheme, 'aor=', aor, 'login=', login, 'passwd=', '*'*(len(passwd) if passwd else 0), 'display=', display
         addr = '"%s" <sip:%s>'%(display, aor) if display else 'sip:%s'%(aor)
         sock = socket.socket(type=socket.SOCK_DGRAM) # signaling socket for SIP
@@ -1166,28 +1168,21 @@ class Context(object):
                 self.user.context = None; self.user = None
                 if self._gin is not None: self._gin.kill(); self._gin = None
                 if self._gss is not None: self._gss.kill(); self._gss = None
+            if self.media:
+                self.media.close(); self.media = None
         except:
             if _debug: print '  exception in unregister', (sys and sys.exc_info() or None)
     
-    def _get_sdp_streams(self): # returns a list of audio and video streams.
-        global audiospeex
-        audio, video = rfc4566.SDP.media(media='audio'), rfc4566.SDP.media(media='video')
-        audio.fmt, video.fmt = [rfc4566.attrs(pt=96, name=self._audio.name, rate=self._audio.rate)], [rfc4566.attrs(pt=97, name=self._video.name, rate=self._video.rate)]
-        if audiospeex:
-            audio.fmt.extend([rfc4566.attrs(pt=98, name='speex', rate=16000 if self._audio.rate==8000 else 8000), rfc4566.attrs(pt=0, name='pcmu', rate=8000), rfc4566.attrs(pt=8, name='pcma', rate=8000)])
-        # add touchtone format to allow sending this format as well.
-        audio.fmt.extend([rfc4566.attrs(pt=101, name=self._touchtone.name, rate=self._touchtone.rate)])
-        return [audio, video]
-    
-    def rtmp_invite(self, dest):
+    def rtmp_invite(self, dest, *args):
         try:
-            if _debug: print 'rtmp-invite', dest
+            if _debug: print 'rtmp-invite %r %r'%(dest, args)
             if self.user: # already a registered user exists
                 if not self.session: # not already in a session, so create one
                     try: dest = rfc2396.Address(dest) # first try the default scheme supplied by application
                     except: dest = rfc2396.Address(self.user.address.uri.scheme + ':' + dest) # otherwise scheme is picked from registered URI
-                    media = MediaSession(app=self, streams=self._get_sdp_streams(), listen_ip=self.client.server.int_ip, NetworkClass=Network)
-                    self.outgoing = gevent.spawn(self.user.connect, dest, sdp=media.mysdp, provisional=True)
+                    if _debug: print '  create media context'
+                    media = MediaContext(self, None, self.client.server.int_ip, self._preferred, Network, *args) # create a media context for the call
+                    self.outgoing = gevent.spawn(self.user.connect, dest, sdp=media.session.mysdp, provisional=True)
                     try:
                         session, reason = self.outgoing.get()
                         if _debug: print '  session=', session, 'reason=', reason
@@ -1196,14 +1191,17 @@ class Context(object):
                             self.outgoing = gevent.spawn(self.user.continueConnect, session, provisional=True)
                             session, reason = self.outgoing.get()
                     except:
+                        media.close()
                         if self.outgoing is not None: raise
                         else: raise StopIteration(None) # else call was cancelled in another task
                     self.outgoing = None # because the generator returned, and no more pending outgoing call
                     if session: # call connected
-                        media.setRemote(session.yoursdp); session.media = media; self.session = session
-                        self._transcode = self._get_transcode()
+                        self.media, self.session = media, session
+                        self.media.session.setRemote(session.yoursdp)
                         self._gss = gevent.spawn(self._sessionhandler) # receive more requests from SIP
-                        self.client.call('accepted')
+                        codecs = self.media.accepting()
+                        if _debug: print 'sip-accepted %r'%(codecs,)
+                        self.client.call('accepted', *codecs)
                     else: # connection failed, close media socket
                         media.close()
                         self.client.call('rejected', reason)
@@ -1213,20 +1211,21 @@ class Context(object):
             if _debug: print '  exception in invite', (sys and sys.exc_info() or None)
             self.client.call('rejected', 'Internal server error')
 
-    def rtmp_accept(self):
-        if _debug: print 'rtmp-accept'
+    def rtmp_accept(self, *args):
+        if _debug: print 'rtmp-accept %r'%(args,)
         incoming = self.incoming; self.incoming = reason = media = None # clear self.incoming, and store value in incoming
         try:
             if self.user is not None and incoming is not None:
-                media = MediaSession(app=self, streams=self._get_sdp_streams(), request=incoming[1].request, listen_ip=self.client.server.int_ip, NetworkClass=Network) # create local media session
-                if media.mysdp is None: reason = '488 Incompatible SDP'
+                self.media = MediaContext(self, incoming[1].request, self.client.server.int_ip, self._preferred, Network, *args) # create a media context for the call
+                if self.media.session.mysdp is None: reason = '488 Incompatible SDP'
                 else:
-                    session, reason = self.user.accept(incoming, sdp=media.mysdp)
+                    session, reason = self.user.accept(incoming, sdp=self.media.session.mysdp)
                     if session: # call connected
-                        session.media = media; self.session = session
-                        self._transcode = self._get_transcode()
+                        self.session = session
                         self._gss = gevent.spawn(self._sessionhandler) # receive more requests from SIP
-                        self.client.call('accepted')
+                        codec = self.media.accepting()
+                        if _debug: print 'sip-accepted %r'%(codecs,)
+                        self.client.call('accepted', *codecs)
                     elif not reason: reason = '500 Internal Server Error in Accepting'
             else:
                 if _debug: print '  no incoming call. ignored.'
@@ -1234,7 +1233,8 @@ class Context(object):
             if _debug: print '  exception in rtmp_accept', (sys and sys.exc_info()) 
             reason = '500 Internat Server Exception'
         if reason:
-            if media: media.close()
+            if self.media:
+                self.media.close(); self.media = None
             if self.user: self.user.reject(incoming, reason) # TODO: a better way would be to reject in _incominghandler
             if self.client: self.client.call('byed')
             
@@ -1324,189 +1324,77 @@ class Context(object):
     def _cleanup(self): # cleanup a session
         if self.session:
             self.session.close()    # close the session
-            if self.session.media: self.session.media.close(); self.session.media = None # clear the reference
             self.session = None
+        if self.media:
+            self.media.close()
+            self.media = None
         if self._gss is not None: self._gss.kill(); self._gss = None
-        self._transcode = None
 
     def received(self, media, fmt, packet): # an RTP packet is received. Hand over to sip_data.
-        self.sip_data(fmt, packet)
+        if fmt is not None:
+            self.sip_data(fmt, packet)
     
     def sip_data(self, fmt, data): # handle media stream received from SIP
         try:
-            p = rfc3550.RTP(data) if not isinstance(data, rfc3550.RTP) else data
-            #if _debug: print 'RTP  pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
-            if str(fmt.name).lower() == str(self._video.name).lower():  # this is a video (FLV) packet, just assemble and return to rtmp
-                self.video_rtp2rtmp(p)
-            elif str(fmt.name).lower() == str(self._touchtone.name).lower(): # this is DTMF
-                if _debug: print 'ignoring incoming DTMF touchtone'
-            else: # this is a audio (Speex) packet. Build RTMP header and return to rtmp
-                speex_data, input_rate = self._transcode_sip2rtmp(fmt, p.payload)
-                payload, t = '\xb2' + speex_data, (p.ts / (input_rate / 1000))
-                if self.play_stream is not None:
-                    header = Header(time=t, size=len(payload), type=0x08, streamId=self.play_stream.id)
-                    m = Message(header, payload)
-                    #if _debug: print '  RTMP pt=%x len=%d hdr=%r'%(m.header.type, m.size, m.header)
-                    self.client.writeMessage(m, self.play_stream)
+            p = RTP(data) if not isinstance(data, RTP) else data
+            if _debug: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
+            if self.media:
+                messages = self.media.rtp2rtmp(fmt, p)
+                if self.play_stream and messages:
+                    for message in messages:
+                        if _debug: print 'f<-  type=%r len=%r codec=0x%02x'%(message.type, message.size, message.data and ord(message.data[0]) or -1)
+                        self.client.writeMessage(message, self.play_stream)
         except (ValueError, AttributeError), E:
-            if _debug: print 'Invalid RTP parse error', E
+            if _debug: print '  exception in sip_data', E; traceback.print_exc()
 
     def rtmp_data(self, stream, message): # handle media data message received from RTMP
         try:
-            #if _debug: print 'RTMP pt=%x len=%d'%(message.header.type, message.size)
-            if self.session and self.session.media and self.session.media.hasType('video'): # the remote SIP user supports our video format. send FLV video to remote in RTP.
-                self.video_rtmp2rtp(message)
-            else: # the remote SIP user doesn't support our video. send audio (Speex) in RTP
-                if message.header.type == 0x08 and message.size > 1: # audio packet of speex codec
-                    #if _debug: print '  Audio is %r'%(message.data[0])
-                    if self.session and self.session.media:
-                        self._ts += (self._audio.rate * 20 / 1000) # assume 20 ms data at 16000 Hz
-                        payload, fmt = self._transcode_rtmp2sip(message.data[1:])
-                        self.session.media.send(payload=payload, ts=self._ts, marker=False, fmt=fmt)
-
+            if _debug: print 'f->  type=%x len=%d codec=0x%02x'%(message.header.type, message.size, message.data and ord(message.data[0]) or -1)
+            if self.media:
+                messages = self.media.rtmp2rtp(stream, message)
+                if self.session and self.media.session and messages:
+                    for payload, ts, marker, fmt in messages:
+                        if _debug: print ' ->s fmt=%r %r/%r ts=%r marker=%r len=%d'%(fmt.pt, fmt.name, fmt.rate, ts, marker, len(payload))
+                        self.media.session.send(payload=payload, ts=ts, marker=marker, fmt=fmt)
         except:
-            if _debug: print '  exception in rtmp_data', (sys and sys.exc_info() or None)
+            if _debug: print '  exception in rtmp_data'; traceback.print_exc()
 
     def rtmp_sendDTMF(self, digit):
         try:
             if _debug: print 'rtmp-sendDTMF', digit
-            if len(digit) != 1:
-                if _debug: print '  only single digit DTMF is supported in sendDTMF'
-            elif not self.session or not self.session.media or not self.session.media.hasType('audio'):
-                if _debug: print '  ignoring sendDTMF: not an active audio call'
-            else:
-                payload = repr(rfc2833.DTMF(key=digit, end=True))
-                if _debug: print '  sending payload %r'%(payload,)
-                self.session.media.send(payload=payload, ts=self._ts, marker=False, fmt=self._touchtone)
+            if self.media:
+                messages = self.media.dtmf2rtp(digit)
+                if self.session and self.media.session and messages is not None:
+                    for payload, ts, marker, fmt in messages:
+                        self.media.session.send(payload=payload, ts=ts, marker=marker, fmt=fmt)
         except:
-            if _debug: print '  exception in rtmp_sendDTMF', (sys and sys.exc_info() or None)
+            if _debug: print '  exception in rtmp_sendDTMF'; traceback.print_exc()
             
     def rtmp_hold(self, value):
         try:
             if _debug: print 'rtmp-hold', value
             self.session.hold(value)
         except:
-            if _debug: print '  exception in rtmp_hold', (sys and sys.exc_info() or None)
-            traceback.print_exc()
-                
-    def video_rtmp2rtp(self, message): # convert given RTMP message to RTP packets and send to SIP side
-        '''Formatting of RTMP media message to RTP payload and sending to RTP session.'''
-        try:
-            data = pack('>III', message.type, message.size, message.time) + message.data # assembled message
-            origlen, packets, cseq = len(data), [], 0
-            hdr  = pack('>Ihh', self._txseq, cseq, len(data)) # header for first chunk
-            while len(data) > 0:
-                packets.append('RTMP'+hdr+data[:1000])
-                data = data[1000:]
-                cseq += 1
-                hdr = pack('>Ih', self._txseq, cseq)
-            # if _debug: print 'rtmp2rtp type=%d,len=%d split seq=%d, chunks=%d'%(message.type, origlen, self._txseq, len(packets)) 
-            self._txseq += 1
-            if self.session and self.session.media:
-                for packet in packets:
-                    self.session.media.send(payload=packet, ts=message.time*(self._video.rate/1000), marker=False, fmt=self._video)
-                    # gevent.sleep(0.005) # sleep for 5 ms
-        except: 
-            if _debug: print 'exception in rtmp2rtp', (sys and sys.exc_info())
-            
-    def video_rtp2rtmp(self, packet): # convert given RTP packet to RTMP message and play to the rtmp side.
-        '''The parsing of chunks from RTP payload is reverse of creating chunks.'''
-        try:
-            magic, payload = packet.payload[:4], packet.payload[4:]
-            if magic != 'RTMP':
-                if _debug: print 'ignoring non-RTMP packet in received video'
-                return
-            seq, cseq = unpack('>Ih', payload[:6])
-            # if _debug: print 'rtp2rtmp received seq=%d cseq=%d len=%d'%(seq, cseq, len(payload))
-            if cseq == 0: # first packet in the chunks. Initialize the rx state.
-                self._rxseq, self._rxchunks[:] = seq, [] 
-                self._rxlen, = unpack('>h', payload[6:8])
-                self._rxchunks.append(payload[8:])
-            else:
-                if seq != self._rxseq or len(self._rxchunks) == 0:
-                    if _debug: print 'probably missed a begin packet'
-                    return
-                if cseq != len(self._rxchunks):
-                    if _debug: print 'probably out of order packet'
-                    return
-                self._rxchunks.append(payload[6:])
-            got = sum(map(lambda x: len(x), self._rxchunks), 0)
-            if got < self._rxlen: return # not all chunk is received yet
-            if got > self._rxlen:
-                if _debug: print 'unexpected error, got more than expected %d > %d'%(got, self._rxlen)
-                return
-            if self._rxlen < 12:
-                if _debug: print 'received data is too small %d'%(self._rxlen)
-                return
-            
-            data, message = ''.join(self._rxchunks), Message()
-            self._rxlen, self._rxchunks[:] = 0, []  # clear the state now that we have full packet
-            message.type, msglen, message.time = unpack('>III', data[0:12]); message.data = data[12:]
-            if msglen != len(message.data):
-                if _debug: print 'invalid message len %d != %d'%(msglen, len(message.data))
-                return
+            if _debug: print '  exception in rtmp_hold'; traceback.print_exc()
 
-            if self.play_stream is not None: self.client.writeMessage(message, self.play_stream)
-        except:
-            if _debug: print 'exception in rtp2rtmp', (sys and sys.exc_info())
+    def requestFIR(self):
+        # TODO: merge with siprtmp.Context
+        # TODO: this should be sent if we received INFO for FIR from remote.
+        if self.session and self.session.ua:
+            ua = self.session.ua
+            m = ua.createRequest('INFO')
+            m['Content-Type'] = SIPHeader('application/media_control+xml', 'Content-Type')
+            m.body = '''<?xml version="1.0" encoding="utf-8" ?>
+<media_control>
+    <vc_primitive>
+        <to_encoder>
+            <picture_fast_update></picture_fast_update>
+        </to_encoder>
+    </vc_primitive>
+</media_control>
+'''
+            ua.sendRequest(m)
 
-    def _get_transcode(self):
-        global audiospeex
-        media = self.session.media
-        if audiospeex and media.hasType('audio') and not media.hasYourFormat(self._audio): # if we have audiospeex transcoding module and remote doesn't have our preferred format, enable transcoding
-            fmt = ([fy for fy in media.streams[0].fmt if media.hasYourFormat(fy)] + [None])[0]
-            if _debug: print '  enable transcoding between %r/%r and %r/%r'%(self._audio.name if self._audio else None, self._audio.rate if self._audio else 0, fmt.name if fmt else None, fmt.rate if fmt else 0)
-            if fmt: return {'fmt': fmt}
-        return None
-
-    def _transcode_sip2rtmp(self, fmt, payload):
-        global audiospeex
-        if not self._transcode: # no transcoding needed
-            return (payload, self._audio.rate)  # assume 20 ms packet at 16000 Hz, one 16 ts is 1 ms (t)
-        elif str(fmt.name).lower() == 'speex': # no transcode since Flash supports speex 8000/16000 anyway
-            return (payload, fmt.rate)
-        else: # perform transcoding from self._transcode[fmt] to self._audio
-            input_rate = fmt.rate or 8000
-            if str(fmt.name).lower() == 'pcmu' and fmt.rate == 8000 or fmt.pt == 0:
-                linear = audioop.ulaw2lin(payload, 2)
-            elif str(fmt.name).lower() == 'pcma' and fmt.rate == 8000 or fmt.pt == 8:
-                linear = audioop.ulaw2lin(payload, 2)
-            else: raise ValueError, 'ignoring unsupported payload type %r %r/%r'%(fmt.pt, fmt.name, fmt.rate)
-            if self._audio.rate == 16000: # upsample
-                linear, self._transcode['sip-resample'] = audiospeex.resample(linear, input_rate=input_rate, output_rate=self._audio.rate, state=self._transcode.get('sip-resample', None))
-            speex_data, self._transcode['sip-lin2speex'] = audiospeex.lin2speex(linear, sample_rate=self._audio.rate, state=self._transcode.get('sip-lin2speex', None))
-            return (speex_data, input_rate)
-            
-    def _transcode_rtmp2sip(self, payload):
-        fmt = self._audio
-        if not self._transcode: # no transcoding needed
-            if self._audio.rate == 8000: # Flash Player still sends 16000 Hz
-                payload = self._remove_wideband(payload)
-        else: # perform transcoding from speex/16000 to self._transcode[fmt]
-            fmt = self._transcode['fmt']
-            if str(fmt.name).lower() != 'speex' or fmt.rate != 16000: # only if transcoding is needed
-                linear, self._transcode['rtmp-speex2lin'] = audiospeex.speex2lin(payload, sample_rate=16000, state=self._transcode.get('rtmp-speex2lin', None))
-                linear, self._transcode['rtmp-resample'] = audiospeex.resample(linear, input_rate=16000, output_rate=fmt.rate, state=self._transcode.get('rtmp-resample', None))
-                
-                if str(fmt.name).lower() == 'speex' and fmt.rate != 16000: # transcode speex/16000 to speex/rate
-                    payload, self._transcode['rtmp-lin2speex'] = audiospeex.lin2speex(linear, sample_rate=fmt.rate, state=self._transcode.get('rtmp-lin2speex', None))
-                elif str(fmt.name).lower() == 'pcmu' and fmt.rate == 8000 or fmt.pt == 0: # transcode speex/16000 to pcmu/8000
-                    payload = audioop.lin2ulaw(linear, 2)
-                elif str(fmt.name).lower() == 'pcma' and fmt.rate == 8000 or fmt.pt == 8:
-                    payload = audioop.lin2alaw(linear, 2)
-                else: raise ValueError, 'ignoring unsupported payload type %r %r/%r'%(fmt.pt, fmt.name, fmt.rate)
-        return (payload, fmt)
-
-    def _remove_wideband(self, payload):
-        if ord(payload[0]) & 0x80 == 0: # narrowband
-            mode = (ord(payload[0]) & 0x78) >> 3
-            bits = (5, 43, 119, 160, 220, 300, 364, 492, 79)[mode] if mode < 9 else 0
-            size, bits = bits / 8, bits % 8
-            if bits and (size + 1) <= len(payload):
-                payload = payload[:size] + chr(((ord(payload[size]) & ((0xff << (8-bits)) & 0xff)) | (0xff >> (bits + 1))) & 0xff)
-            elif not bits and size <= len(payload):
-                payload = payload[:size]
-        return payload
 
 class Gateway(App):
     '''The SIP-RTMP gateway implemented as RTMP server application.'''
@@ -1537,6 +1425,7 @@ class Gateway(App):
     def onPlay(self, client, stream):
         if _debug: print self.name, 'onPlay', client.path, stream.name
         client.context.play_stream = stream
+        client.context.media._au2_ts0 = 0
     def onStop(self, client, stream):
         if _debug: print self.name, 'onStop', client.path, stream.name
         client.context.play_stream = None
@@ -1622,9 +1511,12 @@ if __name__ == '__main__':
     parser.add_option('-e', '--ext-ip',  dest='ext_ip',  default=None,      help='IP address to advertise in SIP/SDP. Default is to use "--int-ip" or any local interface')
     parser.add_option('-f', '--fork',    dest='fork',    default=1, type="int", help='Number of processes to use for concurrency. Default is 1.')
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
+    parser.add_option('-D', '--verbose-all', dest='verbose_all', default=False, action='store_true', help='enable full debug trace for all modules')
     (options, args) = parser.parse_args()
     
-    _debug = options.verbose
+    import rtmp, siprtmp, app.voip, std.rfc3550, std.rfc3261
+    siprtmp._debug = rtmp._debug = std.rfc3261._debug = options.verbose_all
+    _debug = app.voip._debug = options.verbose or options.verbose_all
     
     if _debug and not audiospeex:
         print 'warning: audiospeex module not found; disabling transcoding to/from speex'
