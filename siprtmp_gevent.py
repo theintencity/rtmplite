@@ -1147,7 +1147,7 @@ class Context(object):
                     self.client.rejectConnection(reason=reason)
                     return
                 self._gin = gevent.spawn(self._incominghandler) # incoming SIP messages handler
-            else: user.address = Address(addr)
+            else: user.address = rfc2396.Address(addr)
             if _debug: print '  register successful'
             self.client.accept()
         except: 
@@ -1196,7 +1196,7 @@ class Context(object):
                         else: raise StopIteration(None) # else call was cancelled in another task
                     self.outgoing = None # because the generator returned, and no more pending outgoing call
                     if session: # call connected
-                        self.media, self.session = media, session
+                        self.media, self.session, session.media = media, session, media.session
                         self.media.session.setRemote(session.yoursdp)
                         self._gss = gevent.spawn(self._sessionhandler) # receive more requests from SIP
                         codecs = self.media.accepting()
@@ -1221,9 +1221,9 @@ class Context(object):
                 else:
                     session, reason = self.user.accept(incoming, sdp=self.media.session.mysdp)
                     if session: # call connected
-                        self.session = session
+                        self.session, session.media = session, media.session
                         self._gss = gevent.spawn(self._sessionhandler) # receive more requests from SIP
-                        codec = self.media.accepting()
+                        codecs = self.media.accepting()
                         if _debug: print 'sip-accepted %r'%(codecs,)
                         self.client.call('accepted', *codecs)
                     elif not reason: reason = '500 Internal Server Error in Accepting'
@@ -1384,7 +1384,7 @@ class Context(object):
         if self.session and self.session.ua:
             ua = self.session.ua
             m = ua.createRequest('INFO')
-            m['Content-Type'] = SIPHeader('application/media_control+xml', 'Content-Type')
+            m['Content-Type'] = rfc3261.Header('application/media_control+xml', 'Content-Type')
             m.body = '''<?xml version="1.0" encoding="utf-8" ?>
 <media_control>
     <vc_primitive>

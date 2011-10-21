@@ -625,7 +625,7 @@ class Context(object):
                         else: raise StopIteration(None) # else call was cancelled in another task
                     self.outgoing = None # because the generator returned, and no more pending outgoing call
                     if session: # call connected
-                        self.media, self.session = media, session
+                        self.media, self.session, session.media = media, session, media.session
                         self.media.session.setRemote(session.yoursdp)
                         self._gss = self._sessionhandler(); multitask.add(self._gss) # receive more requests from SIP
                         codecs = self.media.accepting();
@@ -653,7 +653,7 @@ class Context(object):
                 else:
                     session, reason = yield self.user.accept(incoming, sdp=self.media.session.mysdp)
                     if session: # call connected
-                        self.session = session
+                        self.session, session.media = session, self.media.session
                         self._gss = self._sessionhandler(); multitask.add(self._gss) # receive more requests from SIP
                         codecs = self.media.accepting();
                         if _debug: print 'sip-accepted %r'%(codecs,) 
