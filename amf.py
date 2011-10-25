@@ -17,6 +17,7 @@ class Class:
 
 class _Undefined(object):
     def __nonzero__(self): return False # always treated as False
+    def __repr__(self): return 'amf.undefined'
 
 undefined = _Undefined()  # received undefined is different from null (None)
 
