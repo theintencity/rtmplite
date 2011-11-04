@@ -146,7 +146,7 @@ import types
 
 __author__   = 'Christopher Stawarz <cstawarz@csail.mit.edu>'
 __version__  = '0.2.0'
-__revision__ = int('$Revision: 5025 $'.split()[1])
+__revision__ = int('$Revision$'.split()[1])
 
 
 
