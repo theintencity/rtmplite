@@ -1298,7 +1298,7 @@ class Gateway(App):
 # The main routine to start, run and stop the service. This part is similar to rtmp.py
 if __name__ == '__main__':
     from optparse import OptionParser
-    parser = OptionParser()
+    parser = OptionParser(version='SVN $Revision$, $Date$'.replace('$', ''))
     parser.add_option('-i', '--host',    dest='host',    default='0.0.0.0', help="listening IP address for RTMP. Default '0.0.0.0'")
     parser.add_option('-p', '--port',    dest='port',    default=1935, type="int", help='listening port number for RTMP. Default 1935')
     parser.add_option('-r', '--root',    dest='root',    default='./',       help="document path prefix. Directory must end with /. Default './'")

@@ -173,7 +173,7 @@ def run(server_address = ('0.0.0.0', 8080), target_address = ('127.0.0.1', 1935)
 # The main routine to start, run and stop the service
 if __name__ == '__main__':
     from optparse import OptionParser
-    parser = OptionParser()
+    parser = OptionParser(version='SVN $Revision$, $Date$'.replace('$', ''))
     parser.add_option('-l', '--listen',  dest='listen',  default='0.0.0.0:8080', help="listening transport address. Default '0.0.0.0:8080'")
     parser.add_option('-t', '--target',  dest='target',  default="127.0.0.1:1935", help="target server address. Default is '127.0.0.1:1935'")
     parser.add_option('-d', '--verbose', dest='verbose', default=False, action='store_true', help='enable debug trace')
