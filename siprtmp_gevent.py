@@ -561,112 +561,6 @@ class Timer(object):
 
 
 # -----------------------------------------------------------------------------
-# Borrowed from rfc3550.py after changing multitask to gevent
-# -----------------------------------------------------------------------------
-
-class Network(object):
-    def __init__(self, app, **kwargs):
-        '''Initialize the network.'''
-        self.app    = app
-        self.src    = kwargs.get('src', ('0.0.0.0', 0))
-        self.dest   = kwargs.get('dest', None)
-        self.srcRTCP= kwargs.get('srcRTCP', (self.src[0], self.src[1] and self.src[1]+1 or 0))
-        self.destRTCP=kwargs.get('destRTCP', None)
-        self.maxsize = kwargs.get('maxsize', 1500)
-        self.rtp = self.rtcp = None
-        
-        if self.src[1] != 0:  # specified port
-            try:
-                s1 = socket.socket(type=socket.SOCK_DGRAM)
-                s2 = socket.socket(type=socket.SOCK_DGRAM)
-                if _debug: print 'created RTP/RTCP sockets', s1, s2
-                s1.bind(self.src)
-                s2.bind(self.srcRTCP)
-            except:
-                if _debug: print 'failed to bind. closing', s1, s2
-                s1.close(); s2.close();
-                s1 = s2 = None
-        else:
-            retry = kwargs.get('retry', 20)   # number of retries to do
-            low   = kwargs.get('low', 10000)  # the range low-high for picking port number
-            high  = kwargs.get('high', 65535)
-            even  = kwargs.get('even', True)  # means by default use even port for RTP
-            while retry>0:
-                s1 = socket.socket(type=socket.SOCK_DGRAM)
-                s2 = socket.socket(type=socket.SOCK_DGRAM)
-                if _debug: print 'created RTP/RTCP sockets(2)', s1, s2
-                # don't bind to any (port=0) to avoid collision in RTCP, where some OS will allocate same port for RTP for retries
-                if even:
-                    port = random.randint(low, high) & 0x0fffe # should not use high+1?
-                else: 
-                    port = random.randint(low, high) | 0x00001
-                try:
-                    s1.bind((self.src[0], port))
-                    s2.bind((self.src[0], port+1))
-                    self.src, self.srcRTCP = s1.getsockname(), s2.getsockname()
-                    break
-                except:
-                    if _debug: print 'failed to bind. closing(2)', s1, s2
-                    s1.close(); s2.close();
-                    s1 = s2 = None
-                retry = retry - 1
-        if s1 and s2:
-            self.rtp, self.rtcp = s1, s2
-            self._rtpgen = gevent.spawn(self.receiveRTP, self.rtp)
-            self._rtcpgen = gevent.spawn(self.receiveRTCP, self.rtcp)
-        else:
-            raise ValueError, 'cannot allocate sockets'
-
-    def __del__(self):
-        self.close()
-    
-    def close(self):
-        if _debug: print 'cleaning up sockets', self.rtp, self.rtcp
-        if self._rtpgen: self._rtpgen.kill(); self._rtpgen = None
-        if self._rtcpgen: self._rtcpgen.kill(); self._rtcpgen = None
-        if self.rtp: self.rtp.close(); self.rtp = None
-        if self.rtcp: self.rtcp.close(); self.rtcp = None
-        if self.app: self.app = None
-        
-    def receiveRTP(self, sock):
-        try:
-            fd = sock.fileno()
-            while True:
-                data, remote = sock.recvfrom(self.maxsize)
-                if self.app: self.app.receivedRTP(data, remote, self.src)
-        except GreenletExit: pass # terminated
-        except: print 'receive RTP exception', (sys and sys.exc_info()); traceback.print_exc()
-        try: os.close(fd)
-        except: pass
-        
-    def receiveRTCP(self, sock):
-        try:
-            fd = sock.fileno()
-            while True:
-                data, remote = sock.recvfrom(self.maxsize)
-                if self.app: self.app.receivedRTCP(data, remote, self.srcRTCP)
-        except GreenletExit: pass # terminated
-        except: print 'receive RTCP exception', (sys and sys.exc_info())
-        try: os.close(fd)
-        except: pass
-        
-    def sendRTP(self, data, dest=None): # unline sendRTCP this is not a generator
-        if self.rtp:
-            dest = dest or self.dest
-            if dest and dest[1] > 0 and dest[0] != '0.0.0.0': 
-#                if _debug: print 'sending RTP %d to %r'%(len(data), dest)
-                self.rtp.sendto(data, dest)
-            elif _debug: print 'ignoring send RTP'
-        
-    def sendRTCP(self, data, dest=None):
-        if self.rtcp:
-            dest = dest or self.destRTCP
-            if dest and dest[1] > 0 and dest[0] != '0.0.0.0':
-                if _debug: print 'sending RTCP %d to %r'%(len(data), dest) 
-                self.rtcp.sendto(data, dest)
-            elif _debug: print 'ignoring send RTCP'
-
-# -----------------------------------------------------------------------------
 # Borrowed from voip.py after changing multitask to gevent
 # -----------------------------------------------------------------------------
 
@@ -1181,7 +1075,7 @@ class Context(object):
                     try: dest = rfc2396.Address(dest) # first try the default scheme supplied by application
                     except: dest = rfc2396.Address(self.user.address.uri.scheme + ':' + dest) # otherwise scheme is picked from registered URI
                     if _debug: print '  create media context'
-                    media = MediaContext(self, None, self.client.server.int_ip, self._preferred, Network, *args) # create a media context for the call
+                    media = MediaContext(self, None, self.client.server.int_ip, self._preferred, rfc3550.gevent_Network, *args) # create a media context for the call
                     self.outgoing = gevent.spawn(self.user.connect, dest, sdp=media.session.mysdp, provisional=True)
                     try:
                         session, reason = self.outgoing.get()
@@ -1216,7 +1110,7 @@ class Context(object):
         incoming = self.incoming; self.incoming = reason = media = None # clear self.incoming, and store value in incoming
         try:
             if self.user is not None and incoming is not None:
-                self.media = MediaContext(self, incoming[1].request, self.client.server.int_ip, self._preferred, Network, *args) # create a media context for the call
+                self.media = MediaContext(self, incoming[1].request, self.client.server.int_ip, self._preferred, rfc3550.gevent_Network, *args) # create a media context for the call
                 if self.media.session.mysdp is None: reason = '488 Incompatible SDP'
                 else:
                     session, reason = self.user.accept(incoming, sdp=self.media.session.mysdp)
