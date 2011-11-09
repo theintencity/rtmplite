@@ -529,7 +529,7 @@ try:
     from std.kutil import setlocaladdr, getlocaladdr
 except:
     print 'Please include p2p-sip src directory in your PYTHONPATH'
-    exit(1)
+    sys.exit(1)
     
 try: import audiospeex, audioop
 except: audiospeex = None

@@ -38,11 +38,11 @@ from gevent.queue import Queue, Empty
 import os, sys, traceback, time, struct, socket, random, amf, hashlib, hmac, random
 from struct import pack, unpack
 from rtmp import Header, Message, Command, App, getfilename, Protocol
-from siprtmp import MediaContext
 
 try:
     from std import rfc3261, rfc3264, rfc3550, rfc2396, rfc4566, rfc2833, kutil
     from app.voip import MediaSession
+    from siprtmp import MediaContext
     sip = True
 except:
     print 'warning: disabling SIP. To enable please include p2p-sip src directory in your PYTHONPATH before starting this application'
@@ -1409,9 +1409,13 @@ if __name__ == '__main__':
     parser.add_option('-D', '--verbose-all', dest='verbose_all', default=False, action='store_true', help='enable full debug trace for all modules')
     (options, args) = parser.parse_args()
     
-    import rtmp, siprtmp, app.voip, std.rfc3550, std.rfc3261
-    siprtmp._debug = rtmp._debug = std.rfc3261._debug = options.verbose_all
-    _debug = app.voip._debug = options.verbose or options.verbose_all
+    import rtmp
+    rtmp._debug = options.verbose_all
+    if sip:
+        import siprtmp, app.voip, std.rfc3550, std.rfc3261
+        siprtmp._debug = std.rfc3261._debug = options.verbose_all
+        app.voip._debug = options.verbose or options.verbose_all
+    _debug = options.verbose or options.verbose_all
     
     if _debug and not audiospeex:
         print 'warning: audiospeex module not found; disabling transcoding to/from speex'
