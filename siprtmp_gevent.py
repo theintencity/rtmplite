@@ -1320,7 +1320,7 @@ class Gateway(App):
     def onPlay(self, client, stream):
         if _debug: print self.name, 'onPlay', client.path, stream.name
         client.context.play_stream = stream
-        client.context.media._au2_ts0 = 0
+        client.context.media._au2_ts0 = client.context.media._au2_tm = 0
     def onStop(self, client, stream):
         if _debug: print self.name, 'onStop', client.path, stream.name
         client.context.play_stream = None

@@ -779,7 +779,7 @@ class Context(object):
                 messages = self.media.rtp2rtmp(fmt, p)
                 if self.play_stream and messages:
                     for message in messages:
-                        if _debug: print 'f<-  type=%r len=%r codec=0x%02x'%(message.type, message.size, message.data and ord(message.data[0]) or -1)
+                        if _debug: print 'f<-  type=%r len=%r time=%r codec=0x%02x'%(message.type, message.size, message.time, message.data and ord(message.data[0]) or -1)
                         yield self.play_stream.send(message)
         except (ValueError, AttributeError), E:
             if _debug: print '  exception in sip_data', E; traceback.print_exc()
@@ -868,7 +868,7 @@ class MediaContext(object):
         
         # Audio transcoder state
         self._au1_resample = self._au1_speex2lin = self._au1_lin2speex = self._au1_fmt = self._au2_lin2speex = None # transcoder states for audiospeex module.
-        self._au1_ts = self._au2_ts0 = 0
+        self._au1_ts = self._au2_ts0 = self._au2_tm = 0
         
     def rtmp2rtp(self, stream, message): # public method called by Context to transcode RTMP to RTP for media.
         if self.session: # order of following processing is important
@@ -1237,7 +1237,8 @@ class MediaContext(object):
             # TODO: never send speex/16000 to Flash after transcoding
             speex_data, self._au2_lin2speex = audiospeex.lin2speex(linear, sample_rate=8000, state=self._au2_lin2speex)
         if not self._au2_ts0: self._au2_ts0 = p.ts
-        payload, tm = type + speex_data, (p.ts - self._au2_ts0) / (input_rate / 1000)
+        if not self._au2_tm: self._au2_tm = self._context.play_stream.client.relativeTime
+        payload, tm = type + speex_data, (p.ts - self._au2_ts0) / (input_rate / 1000) + self._au2_tm
         header = Header(time=tm, size=len(payload), type=Message.AUDIO, streamId=self._context.play_stream.id)
         m = Message(header, payload)
 #        if _debug: print '  RTMP pt=%x len=%d hdr=%r'%(m.header.type, m.size, m.header)
@@ -1282,7 +1283,7 @@ class Gateway(App):
     def onPlay(self, client, stream):
         if _debug: print self.name, 'onPlay', client.path, stream.name
         client.context.play_stream = stream
-        client.context.media._au2_ts0 = 0
+        client.context.media._au2_ts0 = client.context.media._au2_tm = 0
     def onStop(self, client, stream):
         if _debug: print self.name, 'onStop', client.path, stream.name
         client.context.play_stream = None
