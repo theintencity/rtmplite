@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+This is a test code to test the Flash RTMFP server for NetConnection and NetStream.
+-->
+
+<mx:Application xmlns:mx="http://www.adobe.com/2006/mxml" layout="vertical"
+	horizontalAlign="left"
+	paddingTop="2" paddingLeft="2" paddingRight="2" paddingBottom="2">
+	
+	<mx:HBox>
+		<mx:Label text="URL"/>
+		<mx:TextInput id="urlText" text="rtmfp://localhost/myapp" toolTip="Connect URL" width="150"/>
+		<mx:Label text="Stream"/>
+		<mx:TextInput id="streamText" text="live" toolTip="Stream name" width="30"/>
+		<mx:Label text="nearID/farID"/>
+		<mx:TextInput id="nearText" text="" toolTip="nearID of publish connection" width="150"/>
+  		<mx:CheckBox id="direct" label="direct?" enabled="{nc1 == null}" selected="true"/>
+	</mx:HBox>
+	<mx:HBox>
+		<mx:Label text="Publisher"/>
+		<mx:Button label="Connect" click="connectPublish()" enabled="{nc1 == null}"/>
+		<mx:Button label="Close" click="closePublish()" enabled="{nc1 != null}"/>
+		<mx:Label text="Player"/>
+		<mx:Button label="Connect" click="connectPlay()" enabled="{nc1 != null &amp;&amp; nc2 == null}"/>
+		<mx:Button label="Close" click="closePlay()" enabled="{nc2 != null}"/>
+	</mx:HBox>
+	
+	<mx:HBox id="videoBox" visible="true">
+		<mx:VideoDisplay id="videoBox1" creationComplete="localCreated()" width="160" height="120"/>
+	</mx:HBox>
+	
+	<mx:TextArea id="log" width="100%" height="100%"/>
+	
+    <mx:Script>
+        <![CDATA[
+        import mx.core.UIComponent;
+        
+        [Bindable] private var nc1:NetConnection;
+        [Bindable] private var ns1:NetStream;
+        [Bindable] private var nc2:NetConnection;
+        [Bindable] private var ns2:NetStream;
+        private var videoBox2:Video;
+        
+	private function connectPublish():void {
+		nc1 = connect(urlText.text);
+	}
+	private function closePublish():void {
+		close(nc1);
+	}
+	
+	private function connectPlay():void {
+		nc2 = connect(urlText.text);
+	}
+	private function closePlay():void {
+		close(nc2);
+	}
+	
+        private function connect(url:String):NetConnection {
+		var nc:NetConnection = new NetConnection();
+		nc.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+		nc.addEventListener(IOErrorEvent.IO_ERROR, errorHandler, false, 0, true);
+		nc.addEventListener(SecurityErrorEvent.SECURITY_ERROR, errorHandler, false, 0, true);
+		nc.addEventListener(AsyncErrorEvent.ASYNC_ERROR, errorHandler, false, 0, true);
+		nc.client = {};
+		
+		debug('connect() ' + url);
+		nc.connect(url);
+		return nc;
+        }
+        
+        private function close(nc:NetConnection):void {
+        	debug('close()');
+        	if (nc != null) {
+        		nc.close();
+        	}
+		if (nc == nc1) {
+			nc1 = null;
+			videoBox1.attachCamera(null);
+			ns2 = null;
+		}
+		else if (nc == nc2) {
+			nc2 = null;
+			ns2 = null;
+		}
+        }
+        
+        private function publish(nc:NetConnection, name:String, record:Boolean=false):NetStream {
+		var ns:NetStream = direct.selected ? new NetStream(nc, NetStream.DIRECT_CONNECTIONS) : 
+			new NetStream(nc, NetStream.CONNECT_TO_FMS);
+		ns.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+		ns.addEventListener(IOErrorEvent.IO_ERROR, streamErrorHandler, false, 0, true);
+		ns.addEventListener(AsyncErrorEvent.ASYNC_ERROR, streamErrorHandler, false, 0, true);
+		ns.client = {};
+		
+		ns.publish(name, record ? 'record' : null);
+		videoBox1.attachCamera(Camera.getCamera());
+		ns.attachCamera(Camera.getCamera());
+		ns.attachAudio(Microphone.getMicrophone(-1));
+		return ns;
+        }
+        
+        private function play(nc:NetConnection, name:String, farID:String):NetStream {
+		var ns:NetStream = direct.selected ? new NetStream(nc, farID) : new NetStream(nc);
+		ns.addEventListener(NetStatusEvent.NET_STATUS, netStatusHandler, false, 0, true);
+		ns.addEventListener(IOErrorEvent.IO_ERROR, streamErrorHandler, false, 0, true);
+		ns.addEventListener(AsyncErrorEvent.ASYNC_ERROR, streamErrorHandler, false, 0, true);
+		ns.client = {};
+		
+		ns.play(name);
+		
+		videoBox2.attachNetStream(ns);
+		return ns;
+        }
+        
+        private function netStatusHandler(event:NetStatusEvent):void {
+        	debug('netStatusHandler() ' + event.type + ' ' + event.info.code);
+		var nc:NetConnection = event.currentTarget as NetConnection;
+        	switch (event.info.code) {
+        	case 'NetConnection.Connect.Success':
+			if (nc == nc1) {
+				nearText.text = nc.nearID;
+				ns1 = publish(nc, streamText.text);
+			}
+			else if (nc == nc2) {
+				ns2 = play(nc, streamText.text, nearText.text);
+			}
+        		break;
+        	case 'NetConnection.Connect.Failed':
+        	case 'NetConnection.Connect.Reject':
+        	case 'NetConnection.Connect.Closed':
+			if (nc == nc1) {
+				videoBox1.attachCamera(null);
+				ns1.close();
+				ns1 = null;
+				nc1 = null;
+			}
+			else if (nc == nc2) {
+				ns2.close();
+				ns2 = null
+				nc2 = null;
+			}
+        		break;
+        	}
+        }
+        
+        private function errorHandler(event:ErrorEvent):void {
+        	debug('errorHandler() ' + event.type + ' ' + event.text);
+		var nc:NetConnection = event.currentTarget as NetConnection;
+        	if (nc != null) {
+        		nc.close();
+			if (nc == nc1) {
+				nc1 = null;
+			} else if (nc == nc2) {
+				nc2 = null;
+			}
+		}
+        }
+        
+        private function streamErrorHandler(event:ErrorEvent):void {
+        	debug('streamErrorHandler() ' + event.type + ' ' + event.text);
+        }
+        
+        private function debug(msg:String):void {
+        	if (log != null)
+	        	log.text += msg + '\n';
+        }
+        
+        private function localCreated():void {
+        	var ui:UIComponent = new UIComponent();
+        	videoBox2 = new Video(160, 120);
+        	ui.width = 160;
+        	ui.height = 120;
+        	videoBox2.width = 160;
+        	videoBox2.height = 120;
+        	ui.addChild(videoBox2);
+        	this.videoBox.addChildAt(ui, 0);
+        }
+        ]]>
+    </mx:Script>
+</mx:Application>
