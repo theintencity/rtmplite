@@ -534,7 +534,7 @@ except:
 try: import audiospeex, audioop
 except: audiospeex = None
     
-_debug = False
+_debug = _debugAll = False # debug for regular trace and debugAll for media related traces
 
 class Context(object):
     '''Context stores state needed for gateway. The client.context property holds an instance of this class. The methods invoked
@@ -774,12 +774,12 @@ class Context(object):
     def sip_data(self, fmt, data): # handle media stream received from SIP
         try:
             p = RTP(data) if not isinstance(data, RTP) else data
-            if _debug: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
+            if _debugAll: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
             if self.media:
                 messages = self.media.rtp2rtmp(fmt, p)
                 if self.play_stream and messages:
                     for message in messages:
-                        if _debug: print 'f<-  type=%r len=%r time=%r codec=0x%02x'%(message.type, message.size, message.time, message.data and ord(message.data[0]) or -1)
+                        if _debugAll: print 'f<-  type=%r len=%r time=%r codec=0x%02x'%(message.type, message.size, message.time, message.data and ord(message.data[0]) or -1)
                         yield self.play_stream.send(message)
         except (ValueError, AttributeError), E:
             if _debug: print '  exception in sip_data', E; traceback.print_exc()
@@ -787,12 +787,12 @@ class Context(object):
 
     def rtmp_data(self, stream, message): # handle media data message received from RTMP
         try:
-            if _debug: print 'f->  type=%x len=%d codec=0x%02x'%(message.header.type, message.size, message.data and ord(message.data[0]) or -1)
+            if _debugAll: print 'f->  type=%x len=%d codec=0x%02x'%(message.header.type, message.size, message.data and ord(message.data[0]) or -1)
             if self.media:
                 messages = self.media.rtmp2rtp(stream, message)
                 if self.session and self.media.session and messages:
                     for payload, ts, marker, fmt in messages:
-                        if _debug: print ' ->s fmt=%r %r/%r ts=%r marker=%r len=%d'%(fmt.pt, fmt.name, fmt.rate, ts, marker, len(payload))
+                        if _debugAll: print ' ->s fmt=%r %r/%r ts=%r marker=%r len=%d'%(fmt.pt, fmt.name, fmt.rate, ts, marker, len(payload))
                         self.media.session.send(payload=payload, ts=ts, marker=marker, fmt=fmt)
         except:
             if _debug: print '  exception in rtmp_data'; traceback.print_exc()
@@ -1315,6 +1315,7 @@ if __name__ == '__main__':
     #std.rfc3550._debug = options.verbose
     std.rfc3261._debug = options.verbose_all
     _debug = options.verbose or options.verbose_all
+    _debugAll = options.verbose_all
     
     if _debug and not audiospeex:
         print 'warning: audiospeex module not found; disabling transcoding to/from speex'

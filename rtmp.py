@@ -574,7 +574,7 @@ class FLV(object):
 #        elif not hasattr(self, "videostarted"): return
         if message.type == Message.AUDIO or message.type == Message.VIDEO:
             length, ts = message.size, message.time
-            if _debug: print 'FLV.write()', message.type, ts
+            #if _debug: print 'FLV.write()', message.type, ts
             if self.tsr0 is None: self.tsr0 = ts
             self.tsr, ts = ts, ts - self.tsr0
             # if message.type == Message.AUDIO: print 'w', message.type, ts
@@ -737,9 +737,11 @@ class Client(Protocol):
         response = Command()
         response.id, response.name, response.type = 1, '_result', self.rpc
         if _debug: print 'Client.accept() objectEncoding=', self.objectEncoding
-        response.setArg(amf.Object(level='status', code='NetConnection.Connect.Success',
-                        description='Connection succeeded.', fmsVer='rtmplite/7,0', details=None,
-                        objectEncoding=self.objectEncoding))
+        arg = amf.Object(level='status', code='NetConnection.Connect.Success',
+                         description='Connection succeeded.', fmsVer='rtmplite/8,2')
+        if hasattr(self.agent, 'objectEncoding'):
+            arg.objectEncoding, arg.details = self.objectEncoding, None
+        response.setArg(arg)
         yield self.writeMessage(response.toMessage())
             
     def rejectConnection(self, reason=''):
@@ -747,7 +749,7 @@ class Client(Protocol):
         response = Command()
         response.id, response.name, response.type = 1, '_error', self.rpc
         response.setArg(amf.Object(level='status', code='NetConnection.Connect.Rejected',
-                        description=reason, fmsVer='rtmplite/7,0', details=None))
+                        description=reason, fmsVer='rtmplite/8,2', details=None))
         yield self.writeMessage(response.toMessage())
             
     def redirectConnection(self, url, reason='Connection failed'):
@@ -756,7 +758,7 @@ class Client(Protocol):
         response.id, response.name, response.type = 1, '_error', self.rpc
         extra = dict(code=302, redirect=url)
         response.setArg(amf.Object(level='status', code='NetConnection.Connect.Rejected',
-                        description=reason, fmsVer='rtmplite/7,0', details=None, ex=extra))
+                        description=reason, fmsVer='rtmplite/8,2', details=None, ex=extra))
         yield self.writeMessage(response.toMessage())
 
     def call(self, method, *args):
@@ -1092,6 +1094,7 @@ class FlashServer(object):
             stream.mode = 'live' if len(cmd.args) < 2 else cmd.args[1] # live, record, append
             stream.name = cmd.args[0]
             if _debug: print 'publishing stream=', stream.name, 'mode=', stream.mode
+            if stream.name and '?' in stream.name: stream.name = stream.name.partition('?')[0]
             inst = self.clients[stream.client.path][0]
             if (stream.name in inst.publishers):
                 raise ValueError, 'Stream name already in use'
@@ -1114,6 +1117,7 @@ class FlashServer(object):
         try:
             inst = self.clients[stream.client.path][0]
             name = stream.name = cmd.args[0]  # store the stream's name
+            if stream.name and '?' in stream.name: name = stream.name = stream.name.partition('?')[0]
             start = cmd.args[1] if len(cmd.args) >= 2 else -2
             if name not in inst.players:
                 inst.players[name] = [] # initialize the players for this stream name

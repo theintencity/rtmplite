@@ -37,7 +37,7 @@ from gevent.queue import Queue, Empty
 
 import os, sys, traceback, time, struct, socket, random, amf, hashlib, hmac, random
 from struct import pack, unpack
-from rtmp import Header, Message, Command, App, getfilename, Protocol
+from rtmp import Header, Message, Command, App, getfilename, Protocol, FLV as baseFLV
 
 try:
     from std import rfc3261, rfc3264, rfc3550, rfc2396, rfc4566, rfc2833, kutil
@@ -52,7 +52,7 @@ except:
 try: import audiospeex, audioop
 except: audiospeex = None
 
-_debug = False
+_debug = _debugAll = False
 
 def truncate(data, max=100):
     return data and len(data)>max and data[:max] + '...(%d)'%(len(data),) or data
@@ -503,6 +503,16 @@ class FlashClient(object):
             if start >= 0: raise ValueError, 'Stream name not found'
             if _debug: print 'playing stream=', name, 'start=', start
             inst.onPlay(self, stream)
+            
+#            m1 = Message() # UserControl/StreamIsRecorded
+#            m1.time, m1.type, m1.data = self.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 4, stream.id)
+#            self.writeMessage(m1)
+            
+            m2 = Message() # UserControl/StreamBegin
+            m2.time, m2.type, m2.data = self.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 0, stream.id)
+            self.writeMessage(m2)
+            
+            #self.writeMessage(Message(hdr=Header(time=self.relativeTime, type=Message.USER_CONTROL), data=struct.pack('>HI', 0, stream.id)));
             response = Command(name='onStatus', id=cmd.id, tm=self.relativeTime, args=[amf.Object(level='status',code='NetStream.Play.Start', description=stream.name, details=None)])
             self.writeMessage(response.toMessage(), stream)
         except ValueError, E: # some error occurred. inform the app.
@@ -539,6 +549,52 @@ class FlashClient(object):
 #                if stream.recordfile is not None:
 #                    stream.recordfile.write(message)
 
+
+class FLV(baseFLV):
+    '''Only the reader() task is changed to gevent instead of multitask from base class rtmp.FLV'''
+    def __init__(self):
+        baseFLV.__init__(self)
+    
+    def reader(self, client, stream):
+        '''A gevent task that periodically reads the file and sends media in the stream to this client.'''
+        if _debug: print 'reader started'
+        try:
+            while self.fp is not None:
+                bytes = self.fp.read(11)
+                if len(bytes) == 0:
+                    response = Command(name='onStatus', id=stream.id, tm=client.relativeTime, args=[amf.Object(level='status',code='NetStream.Play.Stop', description='File ended', details=None)])
+                    client.writeMessage(response.toMessage(), stream)
+                    break
+                type, len0, len1, ts0, ts1, ts2, sid0, sid1 = struct.unpack('>BBHBHBBH', bytes)
+                length = (len0 << 16) | len1; ts = (ts0 << 16) | (ts1 & 0x0ffff) | (ts2 << 24)
+                body = self.fp.read(length); ptagsize, = struct.unpack('>I', self.fp.read(4))
+                if ptagsize != (length+11): 
+                    if _debug: print 'invalid previous tag-size found:', ptagsize, '!=', (length+11),'ignored.'
+                if stream is None or stream.client is None: break # if it is closed
+                #hdr = Header(3 if type == Message.AUDIO else 4, ts if ts < 0xffffff else 0xffffff, length, type, stream.id)
+                hdr = Header(0, ts, length, type, stream.id)
+                msg = Message(hdr, body)
+                # if _debug: print 'FLV.read() length=', length, 'hdr=', hdr
+                # if hdr.type == Message.AUDIO: print 'r', hdr.type, hdr.time
+                if type == Message.DATA: # metadata
+                    amfReader = amf.AMF0(body) # TODO: use AMF3 if needed
+                    name = amfReader.read()
+                    obj = amfReader.read()
+                    if _debug: print 'FLV.read()', name, repr(obj)
+                client.writeMessage(msg, stream)
+                if ts > self.tsp: 
+                    diff, self.tsp = ts - self.tsp, ts
+                    if _debug: print 'FLV.read() sleep', diff
+                    gevent.sleep(diff / 1000.0)
+        except gevent.GreenletExit:
+            if _debug: print 'closing the reader'
+        except: 
+            if _debug: print 'closing the reader', (sys and sys.exc_info() or None)
+        if self.fp is not None: 
+            try: self.fp.close()
+            except: pass
+            self.fp = None
+            
 
 class Timer(object):
     '''Timer object used by SIP (rfc3261.Stack) and RTP (rfc3550.Session) among others.'''
@@ -1234,24 +1290,24 @@ class Context(object):
     def sip_data(self, fmt, data): # handle media stream received from SIP
         try:
             p = rfc3550.RTP(data) if not isinstance(data, rfc3550.RTP) else data
-            if _debug: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
+            if _debugAll: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
             if self.media and not self.is_hold:#Asterix: Data still is sent, so ignore
                 messages = self.media.rtp2rtmp(fmt, p)
                 if self.play_stream and messages:
                     for message in messages:
-                        if _debug: print 'f<-  type=%r len=%r codec=0x%02x'%(message.type, message.size, message.data and ord(message.data[0]) or -1)
+                        if _debugAll: print 'f<-  type=%r len=%r codec=0x%02x'%(message.type, message.size, message.data and ord(message.data[0]) or -1)
                         self.client.writeMessage(message, self.play_stream)
         except (ValueError, AttributeError), E:
             if _debug: print '  exception in sip_data', E; traceback.print_exc()
 
     def rtmp_data(self, stream, message): # handle media data message received from RTMP
         try:
-            if _debug: print 'f->  type=%x len=%d codec=0x%02x'%(message.header.type, message.size, message.data and ord(message.data[0]) or -1)
+            if _debugAll: print 'f->  type=%x len=%d codec=0x%02x'%(message.header.type, message.size, message.data and ord(message.data[0]) or -1)
             if self.media:
                 messages = self.media.rtmp2rtp(stream, message)
                 if self.session and self.media.session and messages:
                     for payload, ts, marker, fmt in messages:
-                        if _debug: print ' ->s fmt=%r %r/%r ts=%r marker=%r len=%d'%(fmt.pt, fmt.name, fmt.rate, ts, marker, len(payload))
+                        if _debugAll: print ' ->s fmt=%r %r/%r ts=%r marker=%r len=%d'%(fmt.pt, fmt.name, fmt.rate, ts, marker, len(payload))
                         self.media.session.send(payload=payload, ts=ts, marker=marker, fmt=fmt)
         except:
             if _debug: print '  exception in rtmp_data'; traceback.print_exc()
@@ -1418,6 +1474,7 @@ if __name__ == '__main__':
         siprtmp._debug = std.rfc3261._debug = options.verbose_all
         app.voip._debug = options.verbose or options.verbose_all
     _debug = options.verbose or options.verbose_all
+    _debugAll = options.verbose_all
     
     if _debug and not audiospeex:
         print 'warning: audiospeex module not found; disabling transcoding to/from speex'
