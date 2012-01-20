@@ -1170,7 +1170,7 @@ class MediaContext(object):
                     elif codec == 'ulaw' and session.hasYourFormat(self._pcmu) or codec == 'alaw' and session.hasYourFormat(self._pcma):
                         if audiospeex: # enable transcoding if needed
                             preferred = self._narrowband
-                            fmt = ([fy for fy in self._audio.fmt if session.hasYourFormat(self._pcmu if codec == 'ulaw' else self._pcma)] + [None])[0]
+                            fmt = ([fy for fy in self._audio.fmt if session.hasYourFormat(fy)] + [None])[0]
                             if _debug: print '  enable transcoding between %r/%r and %r/%r'%(preferred.name if preferred else None, preferred.rate if preferred else 0, fmt.name if fmt else None, fmt.rate if fmt else 0)
                             if fmt: self._au1_fmt = fmt
                             audiop = 'speex'
@@ -1200,7 +1200,7 @@ class MediaContext(object):
             if str(fmt.name).lower() != 'speex' or fmt.rate != 16000: # only if transcoding is needed.
                 linear, self._au1_speex2lin = audiospeex.speex2lin(payload, sample_rate=16000, state=self._au1_speex2lin)
                 linear, self._au1_resample = audiospeex.resample(linear, input_rate=16000, output_rate=fmt.rate, state=self._au1_resample)
-                
+
                 if str(fmt.name).lower() == 'speex' and fmt.rate != 16000: # transcode speex/16000 to speex/rate
                     payload, self._au1_lin2speex = audiospeex.lin2speex(linear, sample_rate=fmt.rate, state=self._au1_lin2speex)
                 elif str(fmt.name).lower() == 'pcmu' and fmt.rate == 8000 or fmt.pt == 0: # transcode speex/16000 to pcmu/8000
