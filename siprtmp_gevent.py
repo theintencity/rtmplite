@@ -1066,7 +1066,6 @@ class Context(object):
     by RTMP side are prefixed with rtmp_ and those invoked by SIP side are prefixed sip_. All such methods are actually generators.
     '''
     def __init__(self, app, client):
-        self.is_hold = False
         self.app, self.client = app, client
         self.user = self.session = self.outgoing = self.incoming = None # SIP User and session for this connection
         self.publish_stream = self.play_stream = self.media = self._preferred = None # streams on RTMP side, media context and preferred rate
@@ -1265,8 +1264,8 @@ class Context(object):
                 cmd, arg = session.recv()
                 if cmd == 'close': self.sip_bye(); break # exit from session handler
                 if cmd == 'change': # new SDP received from SIP side
-                    self.is_hold = bool(arg and arg['c'] and arg['c'].address == '0.0.0.0')
-                    self.sip_hold(self.is_hold)
+                    is_hold = bool(arg and arg['c'] and arg['c'].address == '0.0.0.0')
+                    self.sip_hold(is_hold)
             self._cleanup()
         except GreenletExit: pass
         except:
@@ -1291,7 +1290,7 @@ class Context(object):
         try:
             p = rfc3550.RTP(data) if not isinstance(data, rfc3550.RTP) else data
             if _debugAll: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
-            if self.media and not self.is_hold:#Asterix: Data still is sent, so ignore
+            if self.media:
                 messages = self.media.rtp2rtmp(fmt, p)
                 if self.play_stream and messages:
                     for message in messages:
