@@ -838,7 +838,7 @@ class User(object):
                 self._queue.put(('send', (str(request.From.value), request.body)))
             else:
                 ua.sendResponse(405, 'Method not allowed')
-        elif request.method == 'CANCEL':   
+        elif request.method == 'CANCEL':
             # TODO: non-dialog CANCEL comes here. need to fix rfc3261 so that it goes to cancelled() callback.
             if ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
                 self._queue.put(('close', (str(request.From.value), ua)))
@@ -987,16 +987,17 @@ class Session(object):
 
     def hold(self, value): # send re-INVITE with SDP ip=0.0.0.0
         if hasattr(self, 'media') and isinstance(self.media, MediaSession):
-            self.media.hold(value); 
+            self.media.hold(value);
             self.change(self.media.mysdp)
         else: raise ValueError('No media attribute found')
-        
+
     def change(self, mysdp):
         if self.ua:
             ua, self.mysdp = self.ua, mysdp; m = ua.createRequest('INVITE')
             m['Content-Type'] = rfc3261.Header('application/sdp', 'Content-Type')
             m.body = str(mysdp)
             ua.sendRequest(m)
+            self._queue.put(('change', self.media.mysdp));
 
 
 # -----------------------------------------------------------------------------
@@ -1009,6 +1010,7 @@ class Context(object):
     by RTMP side are prefixed with rtmp_ and those invoked by SIP side are prefixed sip_. All such methods are actually generators.
     '''
     def __init__(self, app, client):
+        self.is_hold = False
         self.app, self.client = app, client
         self.user = self.session = self.outgoing = self.incoming = None # SIP User and session for this connection
         self.publish_stream = self.play_stream = self.media = self._preferred = None # streams on RTMP side, media context and preferred rate
@@ -1115,7 +1117,7 @@ class Context(object):
                 else:
                     session, reason = self.user.accept(incoming, sdp=self.media.session.mysdp)
                     if session: # call connected
-                        self.session, session.media = session, media.session
+                        self.session, session.media = session, self.media.session
                         self._gss = gevent.spawn(self._sessionhandler) # receive more requests from SIP
                         codecs = self.media.accepting()
                         if _debug: print 'sip-accepted %r'%(codecs,)
@@ -1207,8 +1209,8 @@ class Context(object):
                 cmd, arg = session.recv()
                 if cmd == 'close': self.sip_bye(); break # exit from session handler
                 if cmd == 'change': # new SDP received from SIP side
-                    is_hold = bool(arg and arg['c'] and arg['c'].address == '0.0.0.0')
-                    self.sip_hold(is_hold)
+                    self.is_hold = bool(arg and arg['c'] and arg['c'].address == '0.0.0.0')
+                    self.sip_hold(self.is_hold)
             self._cleanup()
         except GreenletExit: pass
         except:
@@ -1228,12 +1230,12 @@ class Context(object):
     def received(self, media, fmt, packet): # an RTP packet is received. Hand over to sip_data.
         if fmt is not None:
             self.sip_data(fmt, packet)
-    
+
     def sip_data(self, fmt, data): # handle media stream received from SIP
         try:
             p = rfc3550.RTP(data) if not isinstance(data, rfc3550.RTP) else data
             if _debug: print ' <-s pt=%r seq=%r ts=%r ssrc=%r marker=%r len=%d'%(p.pt, p.seq, p.ts, p.ssrc, p.marker, len(p.payload))
-            if self.media:
+            if self.media and not self.is_hold:#Asterix: Data still is sent, so ignore
                 messages = self.media.rtp2rtmp(fmt, p)
                 if self.play_stream and messages:
                     for message in messages:
