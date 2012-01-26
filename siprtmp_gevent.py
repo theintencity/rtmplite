@@ -626,7 +626,7 @@ class User(object):
         '''Construct a new User on given bound socket for SIP signaling. Starts listening for messages if start is set.
         '''
         self.sock, self.sockaddr = sock, kutil.getlocaladdr(sock)
-        self._listenergen = self._queue = None
+        self._userListenerTask = self._userQueue = None
         self.address = self.username = self.password = self.proxy = None
         self.transport = rfc3261.TransportInfo(self.sock)
         self.stack = rfc3261.Stack(self, self.transport) # create a SIP stack instance
@@ -645,15 +645,15 @@ class User(object):
     
     def start(self):
         '''Start the listener, if not already started.'''
-        if not self._listenergen:
-            self._listenergen  = gevent.spawn(self._listener)
+        if self._userListenerTask is None:
+            self._userListenerTask  = gevent.spawn(self._listener)
         return self
     
     def stop(self):
         '''Stop the listener, if already present'''
-        if self._listenergen: 
-            self._listenergen.kill()
-        self._listenergen = None
+        if self._userListenerTask is not None:
+            self._userListenerTask.kill()
+        self._userListenerTask = None
         return self
     
     def _listener(self, maxsize=1500):
@@ -667,6 +667,7 @@ class User(object):
         except GreenletExit: pass
         except: print 'User._listener exception', (sys and sys.exc_info() or None); traceback.print_exc(); raise
         if _debug: print 'terminating User._listener()'
+        self._userListenerTask = None
     
     #-------------------- binding related ---------------------------------
     
@@ -850,8 +851,8 @@ class User(object):
     
     #-------------------------- generic event receive ---------------------
     def recv(self, timeout=None):
-        if self._queue is None: self._queue = Queue()
-        return self._queue.get(timeout=timeout)
+        if self._userQueue is None: self._userQueue = Queue()
+        return self._userQueue.get(timeout=timeout)
     
     #-------------------------- Interaction with SIP stack ----------------
     # Callbacks invoked by SIP Stack
@@ -884,20 +885,20 @@ class User(object):
         if hasattr(ua, 'queue') and ua.queue is not None:
             ua.queue.put(request)
         elif request.method == 'INVITE':    # a new invitation
-            if self._queue is not None:
-                self._queue.put(('connect', (str(request.From.value), ua)))
+            if self._userQueue is not None:
+                self._userQueue.put(('connect', (str(request.From.value), ua)))
             else:
                 ua.sendResponse(405, 'Method not allowed')
         elif request.method == 'MESSAGE':   # a paging-mode instant message
-            if request.body and self._queue:
+            if request.body and self._userQueue:
                 ua.sendResponse(200, 'OK')      # blindly accept the message
-                self._queue.put(('send', (str(request.From.value), request.body)))
+                self._userQueue.put(('send', (str(request.From.value), request.body)))
             else:
                 ua.sendResponse(405, 'Method not allowed')
         elif request.method == 'CANCEL':
             # TODO: non-dialog CANCEL comes here. need to fix rfc3261 so that it goes to cancelled() callback.
             if ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
-                self._queue.put(('close', (str(request.From.value), ua)))
+                self._userQueue.put(('close', (str(request.From.value), ua)))
         else:
             ua.sendResponse(405, 'Method not allowed')
 
@@ -914,8 +915,8 @@ class User(object):
         '''Callback when given original request has been cancelled by remote.'''
         if hasattr(ua, 'queue') and ua.queue is not None:
             ua.queue.put(request)
-        elif self._queue and ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
-            self._queue.put(('close', (str(request.From.value), ua)))
+        elif self._userQueue and ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
+            self._userQueue.put(('close', (str(request.From.value), ua)))
         
     def dialogCreated(self, dialog, ua, stack):
         dialog.queue = ua.queue
@@ -948,13 +949,13 @@ class Session(object):
     dest (Address).'''
     def __init__(self, user, dest):
         self.user, self.dest = user, dest
-        self.ua = self.local = self.remote = self.gen = self.remotemediaaddr = None
-        self._queue = Queue()
+        self.ua = self.local = self.remote = self._sessionRunTask = self.remotemediaaddr = None
+        self._sessionQueue = Queue()
         
     def start(self, outgoing):
         '''A generator function to initiate the connectivity check and then start the run
         method to receive messages on this ua.'''
-        self.gen = gevent.spawn(self._run)
+        self._sessionRunTask = gevent.spawn(self._run)
         
     def send(self, message):
         if self.ua:
@@ -965,17 +966,17 @@ class Session(object):
             ua.sendRequest(m)
     
     def recv(self, timeout=None):
-        return self._queue.get(timeout=timeout)
+        return self._sessionQueue.get(timeout=timeout)
     
     def close(self, outgoing=True):
         '''Close the call and terminate any generators.'''
         self.local = self.remote = None
-        if self.gen: # close the generator
+        if self._sessionRunTask is not None: # close the generator
             try:
-                self.gen.kill()
+                self._sessionRunTask.kill()
             except GreenletExit:
                 pass
-            self.gen = None
+            self._sessionRunTask = None
         if self.ua:
             ua = self.ua
             if outgoing:
@@ -999,7 +1000,7 @@ class Session(object):
         except GreenletExit: pass
         except: 
             if _debug: traceback.print_exc()
-        self.gen = None
+        self._sessionRunTask = None
            
     def _receivedRequest(self, request):
         '''Callback when received an incoming request.'''
@@ -1009,11 +1010,11 @@ class Session(object):
         elif request.method == 'BYE': # remote terminated the session
             ua.sendResponse(200, 'OK')
             self.close(outgoing=False)
-            self._queue.put(('close', None))
+            self._sessionQueue.put(('close', None))
         elif request.method == 'MESSAGE': # session based instant message
             ua.sendResponse(200, 'OK')
             message = request.body
-            self._queue.put(('send', message))
+            self._sessionQueue.put(('send', message))
         elif request.method not in ['ACK', 'CANCEL']:
             m = ua.createResponse(405, 'Method not allowed in session')
             m.Allow = rfc3261.Header('INVITE, ACK, CANCEL, BYE', 'Allow')
@@ -1039,7 +1040,7 @@ class Session(object):
                 self.mysdp, self.yoursdp, m = self.media.mysdp, self.media.yoursdp, self.ua.createResponse(200, 'OK')
                 m.body, m['Content-Type'] = str(self.mysdp), rfc3261.Header('application/sdp', 'Content-Type')
                 self.ua.sendResponse(m)
-                self._queue.put(('change', self.yoursdp))
+                self._sessionQueue.put(('change', self.yoursdp))
 
     def hold(self, value): # send re-INVITE with SDP ip=0.0.0.0
         if hasattr(self, 'media') and isinstance(self.media, MediaSession):
@@ -1053,7 +1054,7 @@ class Session(object):
             m['Content-Type'] = rfc3261.Header('application/sdp', 'Content-Type')
             m.body = str(mysdp)
             ua.sendRequest(m)
-            self._queue.put(('change', self.media.mysdp));
+            self._sessionQueue.put(('change', self.media.mysdp));
 
 
 # -----------------------------------------------------------------------------
@@ -1067,9 +1068,9 @@ class Context(object):
     '''
     def __init__(self, app, client):
         self.app, self.client = app, client
-        self.user = self.session = self.outgoing = self.incoming = None # SIP User and session for this connection
+        self.user = self.session = self._connectTask = self.incoming = None # SIP User and session for this connection
         self.publish_stream = self.play_stream = self.media = self._preferred = None # streams on RTMP side, media context and preferred rate
-        self._gin = self._gss = None  # generators that needs to be closed on unregister
+        self._incomingHandlerTask = self._sessionHandlerTask = None  # generators that needs to be closed on unregister
         if not hasattr(self.app, '_ports'): self.app._ports = {}     # used to persist SIP port wrt registering URI. map: uri=>port
         
     def rtmp_register(self, login=None, passwd='', display=None, rate='wideband'):
@@ -1097,7 +1098,7 @@ class Context(object):
                 if result == 'failed': 
                     self.client.rejectConnection(reason=reason)
                     return
-                self._gin = gevent.spawn(self._incominghandler) # incoming SIP messages handler
+                self._incomingHandlerTask = gevent.spawn(self._incomingHandler) # incoming SIP messages handler
             else: user.address = rfc2396.Address(addr)
             if _debug: print '  register successful'
             self.client.accept()
@@ -1117,8 +1118,8 @@ class Context(object):
                     except: pass
                     self.user.sock = None
                 self.user.context = None; self.user = None
-                if self._gin is not None: self._gin.kill(); self._gin = None
-                if self._gss is not None: self._gss.kill(); self._gss = None
+                if self._incomingHandlerTask is not None: self._incomingHandlerTask.kill(); self._incomingHandlerTask = None
+                if self._sessionHandlerTask is not None: self._sessionHandlerTask.kill(); self._sessionHandlerTask = None
             if self.media:
                 self.media.close(); self.media = None
         except:
@@ -1133,23 +1134,23 @@ class Context(object):
                     except: dest = rfc2396.Address(self.user.address.uri.scheme + ':' + dest) # otherwise scheme is picked from registered URI
                     if _debug: print '  create media context'
                     media = MediaContext(self, None, self.client.server.int_ip, self._preferred, rfc3550.gevent_Network, *args) # create a media context for the call
-                    self.outgoing = gevent.spawn(self.user.connect, dest, sdp=media.session.mysdp, provisional=True)
                     try:
-                        session, reason = self.outgoing.get()
+                        self._connectTask = gevent.spawn(self.user.connect, dest, sdp=media.session.mysdp, provisional=True)
+                        session, reason = self._connectTask.get()
                         if _debug: print '  session=', session, 'reason=', reason
                         while reason is not None and reason.partition(" ")[0] in ('180', '183'):
                             self.client.call('ringing', reason)
-                            self.outgoing = gevent.spawn(self.user.continueConnect, session, provisional=True)
-                            session, reason = self.outgoing.get()
+                            self._connectTask = gevent.spawn(self.user.continueConnect, session, provisional=True)
+                            session, reason = self._connectTask.get()
                     except:
                         media.close()
-                        if self.outgoing is not None: raise
+                        if self._connectTask is not None: raise
                         else: raise StopIteration(None) # else call was cancelled in another task
-                    self.outgoing = None # because the generator returned, and no more pending outgoing call
+                    self._connectTask = None # because the generator returned, and no more pending outgoing call
                     if session: # call connected
                         self.media, self.session, session.media = media, session, media.session
                         self.media.session.setRemote(session.yoursdp)
-                        self._gss = gevent.spawn(self._sessionhandler) # receive more requests from SIP
+                        self._sessionHandlerTask = gevent.spawn(self._sessionHandler) # receive more requests from SIP
                         codecs = self.media.accepting()
                         if _debug: print 'sip-accepted %r'%(codecs,)
                         self.client.call('accepted', *codecs)
@@ -1173,7 +1174,7 @@ class Context(object):
                     session, reason = self.user.accept(incoming, sdp=self.media.session.mysdp)
                     if session: # call connected
                         self.session, session.media = session, self.media.session
-                        self._gss = gevent.spawn(self._sessionhandler) # receive more requests from SIP
+                        self._sessionHandlerTask = gevent.spawn(self._sessionHandler) # receive more requests from SIP
                         codecs = self.media.accepting()
                         if _debug: print 'sip-accepted %r'%(codecs,)
                         self.client.call('accepted', *codecs)
@@ -1202,10 +1203,10 @@ class Context(object):
     def rtmp_bye(self):
         try:
             if _debug: print 'rtmp-bye'
-            if self.session is None and self.outgoing is not None: # pending outgoing invite
+            if self.session is None and self._connectTask is not None: # pending outgoing invite
                 if _debug: print '  cancel outbound invite'
-                self.outgoing.kill()
-                self.outgoing = None
+                self._connectTask.kill()
+                self._connectTask = None
             elif self.session:
                 self._cleanup()
         except:
@@ -1240,7 +1241,7 @@ class Context(object):
         except:
             if _debug: print '  exception in sip_hold', (sys and sys.exc_info() or None)
         
-    def _incominghandler(self): # Handle incoming SIP messages
+    def _incomingHandler(self): # Handle incoming SIP messages
         try:
             user = self.user
             while True:
@@ -1255,22 +1256,21 @@ class Context(object):
         except GreenletExit: pass
         except: 
             if _debug: print 'incominghandler exiting', (sys and sys.exc_info() or None)
-        self._gin = None
+        self._incomingHandlerTask = None
             
-    def _sessionhandler(self): # Handle SIP session messages
+    def _sessionHandler(self): # Handle SIP session messages
         try:
             session = self.session
             while True:
                 cmd, arg = session.recv()
                 if cmd == 'close': self.sip_bye(); break # exit from session handler
                 if cmd == 'change': # new SDP received from SIP side
-                    is_hold = bool(arg and arg['c'] and arg['c'].address == '0.0.0.0')
-                    self.sip_hold(is_hold)
+                    self.sip_hold(bool(arg and arg['c'] and arg['c'].address == '0.0.0.0'))
             self._cleanup()
         except GreenletExit: pass
         except:
             if _debug: print 'exception in sessionhandler', (sys and sys.exc_info() or None)
-        self._gss = None
+        self._sessionHandlerTask = None
         if _debug: print 'sessionhandler exiting'
         
     def _cleanup(self): # cleanup a session
@@ -1280,7 +1280,7 @@ class Context(object):
         if self.media:
             self.media.close()
             self.media = None
-        if self._gss is not None: self._gss.kill(); self._gss = None
+        if self._sessionHandlerTask is not None: self._sessionHandlerTask.kill(); self._sessionHandlerTask = None
 
     def received(self, media, fmt, packet): # an RTP packet is received. Hand over to sip_data.
         if fmt is not None:
