@@ -276,21 +276,23 @@ class FlashClient(object):
             if cmd.name == 'connect':
                 self.agent = cmd.cmdData
                 self.objectEncoding = self.agent.objectEncoding if hasattr(self.agent, 'objectEncoding') else 0.0
-                self._rpc = Message.RPC if self.objectEncoding == 0.0 else Message.RPC3
+                self._rpc = Message.RPC
                 self.onConnect(cmd.args) # new connection
             elif cmd.name == 'createStream':
+                self.rpc = Message.RPC if self.objectEncoding == 0.0 else Message.RPC3
                 response = Command(name='_result', id=cmd.id, tm=self.relativeTime, type=self._rpc, args=[self._nextStreamId])
                 self.writeMessage(response.toMessage())
                 stream = self.createStream()
                 self.onCreateStream(stream) # also notify others of our new stream
             elif cmd.name == 'closeStream':
+                self.rpc = Message.RPC if self.objectEncoding == 0.0 else Message.RPC3
                 assert msg.streamId in self.streams
                 self.onCloseStream(self.streams[msg.streamId]) # notify closing to others
                 del self.streams[msg.streamId]
             else:
                 # if _debug: print 'Client.messageReceived cmd=', cmd
                 self.onCommand(cmd) # RPC call
-        else: # this has to be a message on the stream
+        else: # this has   to be a message on the stream
             assert msg.streamId != 0
             assert msg.streamId in self.streams
             # if _debug: print self.streams[msg.streamId], 'recv'
