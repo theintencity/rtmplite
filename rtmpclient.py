@@ -337,7 +337,7 @@ def _copy_loop(filename, ns, enableAudio, enableVideo):
             elif enableAudio and msg.type == Message.AUDIO or enableVideo and msg.type == Message.VIDEO:
                 yield ns.stream.send(msg)
     except Result, e:
-        if _debug: print name, 'result=', e
+        if _debug: print filename, 'result=', e
     except GeneratorExit: pass
     except: 
         if _debug: traceback.print_exc()
