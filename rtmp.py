@@ -702,7 +702,6 @@ class Client(Protocol):
                 self.agent = cmd.cmdData
                 if _debug: print 'connect', ', '.join(['%s=%r'%(x, getattr(self.agent, x)) for x in 'app flashVer swfUrl tcUrl fpad capabilities audioCodecs videoCodecs videoFunction pageUrl objectEncoding'.split() if hasattr(self.agent, x)])
                 self.objectEncoding = self.agent.objectEncoding if hasattr(self.agent, 'objectEncoding') else 0.0
-                self.rpc = Message.RPC
                 yield self.server.queue.put((self, cmd.args)) # new connection
             elif cmd.name == 'createStream':
                 response = Command(name='_result', id=cmd.id, tm=self.relativeTime, type=self.rpc, args=[self._nextStreamId])
@@ -715,7 +714,6 @@ class Client(Protocol):
 
                 yield self.queue.put(('stream', stream)) # also notify others of our new stream
             elif cmd.name == 'closeStream':
-                self.rpc = Message.RPC if self.objectEncoding == 0.0 else Message.RPC3
                 assert msg.streamId in self.streams
                 yield self.streams[msg.streamId].queue.put(None) # notify closing to others
                 del self.streams[msg.streamId]
@@ -732,6 +730,7 @@ class Client(Protocol):
 
     @property
     def rpc(self):
+        # TODO: reverting r141 since it causes exception in setting self.rpc
         return Message.RPC if self.objectEncoding == 0.0 else Message.RPC3
     
     def accept(self):
