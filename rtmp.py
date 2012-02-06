@@ -1041,16 +1041,17 @@ class FlashServer(object):
                 if hasattr(inst, 'onResult'):
                     result = inst.onResult(client, cmd.args[0])
             else:
-                res, code, args = Command(), '_result', dict()
-                try: result = inst.onCommand(client, cmd.name, *cmd.args)
+                res, code, result = Command(), '_result', None
+                try:
+                    result = inst.onCommand(client, cmd.name, *cmd.args)
                 except:
                     if _debug: print 'Client.call exception', (sys and sys.exc_info() or None) 
-                    code, args = '_error', dict()
+                    code = '_error'
+                args = (result,) if result is not None else dict()
                 res.id, res.time, res.name, res.type = cmd.id, client.relativeTime, code, client.rpc
                 res.args, res.cmdData = args, None
                 if _debug: print 'Client.call method=', code, 'args=', args, ' msg=', res.toMessage()
                 yield client.writeMessage(res.toMessage())
-                # TODO return result to caller
         yield
         
     def streamlistener(self, stream):
