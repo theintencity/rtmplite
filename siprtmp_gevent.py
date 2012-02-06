@@ -320,9 +320,11 @@ class FlashClient(object):
         response = Command()
         response.id, response.name, response.type = 1, '_result', self._rpc
         if _debug: print 'rtmp.accept() objectEncoding=', self.objectEncoding
-        response.setArg(amf.Object(level='status', code='NetConnection.Connect.Success',
-                        description='Connection succeeded.', fmsVer='rtmplite/7,0', details=None,
-                        objectEncoding=self.objectEncoding))
+        arg = amf.Object(level='status', code='NetConnection.Connect.Success',
+                         description='Connection succeeded.', fmsVer='rtmplite/8,2')
+        if hasattr(self.agent, 'objectEncoding'):
+            arg.objectEncoding = self.objectEncoding
+        response.setArg(arg)
         self.writeMessage(response.toMessage())
             
     def rejectConnection(self, reason=''):
@@ -330,7 +332,7 @@ class FlashClient(object):
         response = Command()
         response.id, response.name, response.type = 1, '_error', self._rpc
         response.setArg(amf.Object(level='status', code='NetConnection.Connect.Rejected',
-                        description=reason, fmsVer='rtmplite/7,0', details=None))
+                        description=reason, fmsVer='rtmplite/8,2', details=None))
         self.writeMessage(response.toMessage())
             
     def redirectConnection(self, url, reason='Connection failed'):
@@ -339,7 +341,7 @@ class FlashClient(object):
         response.id, response.name, response.type = 1, '_error', self._rpc
         extra = dict(code=302, redirect=url)
         response.setArg(amf.Object(level='status', code='NetConnection.Connect.Rejected',
-                        description=reason, fmsVer='rtmplite/7,0', details=None, ex=extra))
+                        description=reason, fmsVer='rtmplite/8,2', details=None, ex=extra))
         self.writeMessage(response.toMessage())
 
     def call(self, method, *args):
