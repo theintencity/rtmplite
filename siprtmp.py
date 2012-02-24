@@ -1057,13 +1057,26 @@ class MediaContext(object):
         elif nalType == 8: # PPS
             self._h2_PPS = p.payload
         elif len(p.payload) > 1:
+            if nalType == 24: # cisco phone sends SPS/PPS in aggregated packet
+                payload = p.payload[1:]
+                while payload:
+                    size, payload = unpack('>H', payload[:2])[0], payload[2:]
+                    naldata, payload = payload[:size], payload[size:]
+                    nt = ord(naldata[0]) & 0x1f
+                    if nt == 7:
+                        self._h2_SPS = naldata
+                        if _debug: print 'extract SPS from aggregated %r'%(naldata,)
+                    elif nt == 8:
+                        self._h2_PPS = naldata
+                        if _debug: print 'extract PPS from aggregated %r'%(naldata,)
             if nalType in (5, 1, 28, 24):
                 p.nalType = nalType
                 self._h2_queue.append(p) # assumes sorted order by seq.
         
         messages = []
         if len(self._h2_queue) >= 2 and (self._h2_queue[-1].nalType != self._h2_queue[-2].nalType or self._h2_queue[-1].ts != self._h2_queue[-2].ts):
-            self._h2_queue[:] = [] # clear the queue
+            if _debug: print 'clearing old queue since new packet has different nal-type or ts: %r != %r or %r != %r'%(self._h2_queue[-1].nalType, self._h2_queue[-2].nalType, self._h2_queue[-1].ts, self._h2_queue[-2].ts)
+            self._h2_queue[:] = self._h2_queue[-1:] # clear the queue
         if p.marker and len(self._h2_queue) > 0:
             packets, self._h2_queue = self._h2_queue, []
             # handle fragmentation and aggregation
@@ -1080,16 +1093,21 @@ class MediaContext(object):
                 nalType = realType
                 payloads.append(newdata)
             elif nalType == 24: # aggregated packets
-                data = ''
+                newdata = ''
                 for x in packets: # assumes all aggregated packet of same type
-                    payload = x.payload
-                    size, payload = unpack('>H', payload[:2])[0], payload[2:]
-                    naldata, payload = payload[:size], payload[size:]
-                    nalType = ord(naldata[0]) & 0x1f
-                    if not data:
-                        data = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00'
-                    data += pack('>I', len(naldata)) + naldata
-                payloads.append(data)
+                    payload = x.payload[1:]
+                    while payload:
+                        size, payload = unpack('>H', payload[:2])[0], payload[2:]
+                        naldata, payload = payload[:size], payload[size:]
+                        nt = ord(naldata[0]) & 0x1f
+                        if nt == 5 or nt == 1: # don't handle 7 and 8 as they are already handled before
+                            nalType = nt
+                            if not newdata:
+                                newdata = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00'
+                            if _debug: 'extract from aggregate type=%r len=%r'%(nalType, len(naldata))
+                            newdata += pack('>I', len(naldata)) + naldata
+                if newdata:
+                    payloads.append(newdata)
             
             SPS, PPS, sentSeq = self._h2_SPS, self._h2_PPS, self._h2_sentSeq
             if self._context.play_stream is None or not PPS or not SPS or PPS and SPS and not sentSeq and nalType != 5:
@@ -1124,11 +1142,11 @@ class MediaContext(object):
 ##                        if _debug: print 'f<- ', len(payload), repr(payload[:20])
 #                        messages.append(m)
     
-                if nalType == 5: # send SPS/PPS
+                if payloads and nalType == 5: # send SPS/PPS
                     # payloads.append('\27\x02\x00\x00\x00')
                     if _debug: print "   SPS", repr(SPS), "PPS", repr(PPS)
                     data = '\x17\x00\x00\x00\x00\x01' + SPS[1:4] + '\xff\xe1' + pack('>H', len(SPS)) + SPS + '\x01' + pack('>H', len(PPS)) + PPS
-                    payloads.append(data)
+                    payloads.insert(0, data)
                 if self._context.play_stream:
                     messages.extend([Message(Header(time=tm, size=len(payload), type=Message.VIDEO, streamId=self._context.play_stream.id), payload) for payload in payloads])
         return messages
@@ -1238,7 +1256,6 @@ class MediaContext(object):
             elif not bits and size <= len(payload):
                 payload = payload[:size]
         return payload
-
 
 class Gateway(App):
     '''The SIP-RTMP gateway implemented as RTMP server application.'''
