@@ -1233,7 +1233,7 @@ class MediaContext(object):
             if str(fmt.name).lower() == 'pcmu' and fmt.rate == 8000 or fmt.pt == 0:
                 linear = audioop.ulaw2lin(p.payload, 2)
             elif str(fmt.name).lower() == 'pcma' and fmt.rate == 8000 or fmt.pt == 8:
-                linear = audioop.ulaw2lin(p.payload, 2)
+                linear = audioop.alaw2lin(p.payload, 2)
             else: 
                 raise ValueError, 'ignoring unsupported payload type %r %r/%r'%(fmt.pt, fmt.name, fmt.rate)
             # TODO: never send speex/16000 to Flash after transcoding
