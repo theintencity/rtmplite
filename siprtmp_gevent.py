@@ -44,10 +44,9 @@ try:
     from app.voip import MediaSession
     from siprtmp import MediaContext
     sip = True
-except:
+except ImportError:
     print 'warning: disabling SIP. To enable please include p2p-sip src directory in your PYTHONPATH before starting this application'
     sip = False
-    # sys.exit(1)
 
 try: import audiospeex, audioop
 except: audiospeex = None
@@ -206,14 +205,14 @@ class FlashClient(object):
                 
                     hdr = Header(channel=header.channel, time=header.currentTime, size=header.size, type=header.type, streamId=header.streamId)
                     msg = Message(hdr, data)
-#                    if _debug: print 'rtmp.parseMessage msg=', msg
+                    # if _debug: print 'rtmp.parseMessage msg=', msg
                     if channel == self.PROTOCOL_CHANNEL_ID:
                         self.protocolMessage(msg)
                     else: 
                         self.messageReceived(msg)
     
     def writeMessage(self, message, stream=None):
-#            if _debug: print 'rtmp.writeMessage msg=', message
+            # if _debug: print 'rtmp.writeMessage msg=', message
             if stream is not None:
                 message.streamId = stream.id
             
@@ -408,6 +407,7 @@ class FlashClient(object):
             self.connected = True
            
     def onCommand(self, cmd):
+        if _debug: print 'Stream.onCommand: ', cmd
         inst = self.server.clients[self.path][0]
         if inst:
             if cmd.name == '_error':
@@ -419,7 +419,7 @@ class FlashClient(object):
             else:
                 res, code, result = Command(), '_result', None
                 try:
-                    result = inst.onCommand(client, cmd.name, *cmd.args)
+                    result = inst.onCommand(self, cmd.name, *cmd.args)
                 except:
                     if _debug: print 'Client.call exception', (sys and sys.exc_info() or None) 
                     code = '_error'
@@ -546,7 +546,7 @@ class FlashClient(object):
             result = inst.onPublishData(self, stream, message)
             if result:
                 for s in (inst.players.get(stream.name, [])):
-                    #if _debug: print 'D', stream.name, s.name
+                    # if _debug: print 'D', stream.name, s.name
                     m = message.dup()
                     result = inst.onPlayData(s.client, s, m)
                     if result:
@@ -635,7 +635,7 @@ class User(object):
         self.address = self.username = self.password = self.proxy = None
         self.transport = rfc3261.TransportInfo(self.sock)
         self.stack = rfc3261.Stack(self, self.transport) # create a SIP stack instance
-        self.reg = None   # registration UAC
+        self.registerUA = None   # registration UAC
         
         if _debug: print 'User created on listening=', sock.getsockname(), 'advertised=', self.sockaddr
         if start:
@@ -644,7 +644,7 @@ class User(object):
     def __del__(self):
         '''Destroy other internal references to Stack, etc.'''
         self.stop()
-        self.reg = None
+        self.registerUA = None
         if self.stack: self.stack.app = None # TODO: since self.stack has a reference to this, __del__will never get called. 
         self.sock = self.stack = None
     
@@ -685,7 +685,7 @@ class User(object):
         automatic refresh of registration before it expires. 
         If update is set to True then also update the self.transport.host with local address.uri.host.'''
         
-        if self.reg: 
+        if self.registerUA: 
             return ('failed', 'Already bound')
         
         address = self.address = rfc2396.Address(str(address))
@@ -693,19 +693,19 @@ class User(object):
         self.username, self.password = username or self.username or address.uri.user, password or self.password
 
         if update: self.transport.host = kutil.getintfaddr(address.uri.host)
-        reg = self.reg = self.createClient()
-        reg.queue = Queue()
+        registerUA = self.registerUA = self.createClient()
+        registerUA.queue = Queue()
         result, reason = self._bind(interval=interval, refresh=refresh, wait=False)
         if _debug: print 'received response', result
-        if result == 'failed': self.reg = None
+        if result == 'failed': self.registerUA = None
         return (result, reason)
                     
     def close(self):
         '''Close the binding by unregistering with the SIP server.'''
-        if not self.reg:
+        if not self.registerUA:
             return ('failed', 'not bound')
-        reg = self.reg
-        if reg.gen: reg.gen.kill(); reg.gen = None
+        registerUA = self.registerUA
+        if registerUA.gen: registerUA.gen.kill(); registerUA.gen = None
         result, reason = self._bind(interval=0, refresh=False, wait=False)
         return (result, reason)
             
@@ -714,32 +714,33 @@ class User(object):
         try:
             if wait:
                 gevent.sleep(interval - min(interval*0.05, 5)) # refresh about 5 seconds before expiry
-            reg = self.reg
-            reg.sendRequest(self._createRegister(interval))
+            registerUA = self.registerUA
+            registerUA.sendRequest(self._createRegister(interval))
             while True:
-                response = reg.queue.get()
+                response = registerUA.queue.get()
                 if response.CSeq.method == 'REGISTER':
+                    if _debug: print 'reponse:', str(response)
                     if response.is2xx:   # success
                         if refresh:        # install automatic refresh
                             if response.Expires:
                                 interval = int(response.Expires.value)
                             if interval > 0:
-                                reg.gen = gevent.spawn(self._bind, interval, refresh, True) # generator for refresh
+                                registerUA.gen = gevent.spawn(self._bind, interval, refresh, True) # generator for refresh
                         return ('success', None)
                     elif response.isfinal: # failed
-                        self.reg.gen = None; self.reg = None
+                        self.registerUA.gen = None; self.registerUA = None
                         return ('failed', str(response.response) + ' ' + response.responsetext)
         except GreenletExit:
             return ('failed', 'Greenlet closed')
 
     def _createRegister(self, interval):
         '''Create a REGISTER Message and populate the Expires and Contact headers. It assumes
-        that self.reg is valid.'''
-        if self.reg:
-            ua = self.reg
-            m = ua.createRegister(ua.localParty)
+        that self.registerUA is valid.'''
+        if self.registerUA:
+            registerUA = self.registerUA
+            m = registerUA.createRegister(registerUA.localParty)
             m.Contact = rfc3261.Header(str(self.stack.uri), 'Contact')
-            m.Contact.value.uri.user = ua.localParty.uri.user
+            m.Contact.value.uri.user = registerUA.localParty.uri.user
             m.Expires = rfc3261.Header(str(interval), 'Expires')
             return m
         else: return None
@@ -755,6 +756,7 @@ class User(object):
         dest = rfc2396.Address(str(dest))
         if not dest.uri:
             return (None, 'invalid dest URI')
+
         ua = self.createClient(dest)
         ua.queue = Queue() # to receive responses
         m = ua.createRequest('INVITE')
@@ -784,11 +786,10 @@ class User(object):
                 session = Session(user=self, dest=dest)
                 session.ua = hasattr(ua, 'dialog') and ua.dialog or ua
                 session.mysdp, session.yoursdp = sdp, None
-                
                 if response.body and response['Content-Type'] and response['Content-Type'].value.lower() == 'application/sdp':
                     session.yoursdp = rfc4566.SDP(response.body)
-                
                 session.start(True)
+
                 return (session, None)
             elif response.isfinal: # some failure
                 return (None, str(response.response) + ' ' + response.responsetext)
@@ -930,10 +931,16 @@ class User(object):
         if _debug: print 'dialogCreated from', ua, 'to', dialog
         # else ignore this since I don't manage any dialog related ua in user
         
-    def authenticate(self, ua, obj, stack):
+    def authenticate(self, ua, transactionId, credentialList, stack):
         '''Provide authentication information to the UAC or Dialog.'''
-        obj.username, obj.password = self.username, self.password 
-        return bool(obj.username and obj.password)
+        if self.context.clientSideAuth:
+            self.context.sip_authenticate(transactionId, credentialList)
+            return (True, 'client')
+        else:
+            #TODO: define an interface, for this data
+            credentialList['username'], credentialList['password'] = self.username, self.password
+            canAuth = bool( (credentialList['username'] and credentialList['password']) )
+            return (canAuth, 'server')
 
     def createTimer(self, app, stack):
         '''Callback to create a timer object.'''
@@ -1076,39 +1083,50 @@ class Context(object):
         self.user = self.session = self._connectTask = self.incoming = None # SIP User and session for this connection
         self.publish_stream = self.play_stream = self.media = self._preferred = None # streams on RTMP side, media context and preferred rate
         self._incomingHandlerTask = self._sessionHandlerTask = None  # generators that needs to be closed on unregister
+        self.clientSideAuth = False
         if not hasattr(self.app, '_ports'): self.app._ports = {}     # used to persist SIP port wrt registering URI. map: uri=>port
         
-    def rtmp_register(self, login=None, passwd='', display=None, rate='wideband'):
+    def rtmp_register(self, login=None, passwd='', display=None, rate='wideband', clientSideAuth=False):
+        self.clientSideAuth = clientSideAuth
+        if clientSideAuth:#We accept so the netconnection is active so we can use the callbacks
+            self.client.accept()
+        gevent.spawn(self.rtmp_register_sip, login, passwd, display, rate)
+
+    def rtmp_register_sip(self, login, passwd, display, rate):
         scheme, ignore, aor = self.client.path.partition('/')
         self._preferred = rate
         if _debug: print 'rtmp-register scheme=', scheme, 'aor=', aor, 'login=', login, 'passwd=', '*'*(len(passwd) if passwd else 0), 'display=', display
+        
         addr = '"%s" <sip:%s>'%(display, aor) if display else 'sip:%s'%(aor)
         sock = socket.socket(type=socket.SOCK_DGRAM) # signaling socket for SIP
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         port = self.app._ports.get(aor, 0)
-        try: sock.bind((self.client.server.int_ip, port)); port = sock.getsockname()[1] 
+        try: 
+            sock.bind((self.client.server.int_ip, port)); port = sock.getsockname()[1]
         except: 
             if _debug: print '  exception in register', (sys and sys.exc_info() or None)
             self.client.rejectConnection(reason='Cannot bind socket port')
             return
+        
         #self.ports[name] = sock.getsockname()[1] # store the port number
         # TODO: storing and keeping the persistent port per user doesn't work well if the app is re-loaded in brief interval.
         try:
             user = self.user = User(sock).start() # create SIP user. Ownership of sock is moved to User.
             user.context, user.username, user.password = self, login, passwd
-            if user.password:
+            if user.password or self.clientSideAuth:
                 if _debug: print '  registering addr=', addr, 'port=', port
                 result, reason = user.bind(addr, refresh=True)
                 if _debug: print '  registration returned', result, reason
-                if result == 'failed': 
+                if result == 'failed':
                     self.client.rejectConnection(reason=reason)
                     return
                 self._incomingHandlerTask = gevent.spawn(self._incomingHandler) # incoming SIP messages handler
-            else: user.address = rfc2396.Address(addr)
+            else: 
+                user.address = rfc2396.Address(addr)
             if _debug: print '  register successful'
-            self.client.accept()
+            if not self.clientSideAuth:#Server Side auth accept location
+                self.client.accept()
         except: 
-            if _debug: print '  exception in register', (sys and sys.exc_info() or None)
             self.client.rejectConnection(reason=sys and str(sys.exc_info()[1]) or 'Server Error')
         
     def rtmp_unregister(self):
@@ -1245,6 +1263,13 @@ class Context(object):
             self.client.call('holded', value)
         except:
             if _debug: print '  exception in sip_hold', (sys and sys.exc_info() or None)
+    
+    def sip_authenticate(self, transactionId, challengeList):
+        try: 
+            if _debug: print 'sip-authenticate'
+            self.client.call('authenticate', transactionId, challengeList)
+        except:
+            if _debug: print '  exception in sip_authenticate', (sys and sys.exc_info() or None)
         
     def _incomingHandler(self): # Handle incoming SIP messages
         try:
@@ -1333,6 +1358,17 @@ class Context(object):
             self.session.hold(value)
         except:
             if _debug: print '  exception in rtmp_hold'; traceback.print_exc()
+            
+    def rtmp_authorize(self, authType, transactionId, digest):
+        try:
+            if _debug: print 'Context.rtmp-authorize', authType, "\n", transactionId, "\n", digest
+            transaction = self.user.stack.findTransaction(transactionId)
+
+            #Security to make sure a user can only auth against his own UA
+            if(self.session and tranaction.app is self.session.ua) or transaction.app is self.registerUA:
+                transaction.app.sendAuth(authType, transaction, digest)#transaction.app is ua
+        except:
+            if _debug: print '  exception in rtmp_authorize'; traceback.print_exc()
 
     def requestFIR(self):
         # TODO: merge with siprtmp.Context
@@ -1369,8 +1405,9 @@ class Gateway(App):
         App.onDisconnect(self, client)
         client.context.rtmp_unregister()
     def onCommand(self, client, cmd, *args):
+        if _debug: print "onCommand: " + cmd
         App.onCommand(self, client, cmd, args)
-        if hasattr(client.context, 'rtmp_%s'%(cmd,)) and callable(eval('client.context.rtmp_%s'%(cmd,))): 
+        if hasattr(client.context, 'rtmp_%s'%(cmd,)) and callable(eval('client.context.rtmp_%s'%(cmd,))):
             gevent.spawn(eval('client.context.rtmp_%s'%(cmd,)), *args)
         elif _debug: print 'invalid command', cmd
     def onPublish(self, client, stream):
@@ -1443,9 +1480,10 @@ class FlashServer(StreamServer):
                     data = socket.recv(8192)
                     if not data:
                         break
-#                    if _debug: print 'received[%d] %r'%(len(data), truncate(data))
+                    # if _debug: print 'received[%d] %r'%(len(data), truncate(data))
                     client.received(data)
-            except: traceback.print_exc()
+            except: 
+                if _debug: traceback.print_exc()
             if _debug: print 'connection[%r] closed from %r'%(socket, address)
             try: client.closed()
             except: pass
