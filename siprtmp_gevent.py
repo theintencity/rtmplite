@@ -1364,9 +1364,9 @@ class Context(object):
             if _debug: print 'Context.rtmp-authorize', authType, "\n", transactionId, "\n", digest
             transaction = self.user.stack.findTransaction(transactionId)
 
-            #Security to make sure a user can only auth against his own UA
-            if(self.session and tranaction.app is self.session.ua) or transaction.app is self.registerUA:
-                transaction.app.sendAuth(authType, transaction, digest)#transaction.app is ua
+            #Security to make sure a user can only auth against his own UA/S
+            if(self.session and tranaction.app is self.session.ua) or transaction.app is self.user.registerUA:
+                transaction.app.sendAuth(authType, transaction.request, digest)#transaction.app is ua
         except:
             if _debug: print '  exception in rtmp_authorize'; traceback.print_exc()
 
