@@ -419,7 +419,7 @@ class FlashClient(object):
             else:
                 res, code, result = Command(), '_result', None
                 try:
-                    result = inst.onCommand(client, cmd.name, *cmd.args)
+                    result = inst.onCommand(self, cmd.name, *cmd.args)
                 except:
                     if _debug: print 'Client.call exception', (sys and sys.exc_info() or None) 
                     code = '_error'
