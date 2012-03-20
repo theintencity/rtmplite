@@ -920,7 +920,7 @@ class User(object):
         '''Callback when given original request has been cancelled by remote.'''
         if hasattr(ua, 'queue') and ua.queue is not None:
             ua.queue.put(request)
-        elif self._userQueue and ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
+        elif self._userQueue is not None and ua.request.method == 'INVITE': # only INVITE is allowed to be cancelled.
             self._userQueue.put(('close', (str(request.From.value), ua)))
         
     def dialogCreated(self, dialog, ua, stack):
