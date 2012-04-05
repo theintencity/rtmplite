@@ -1027,7 +1027,7 @@ class MediaContext(object):
                     if nals:
                         remaining = nals[-1]
                         # message.data = message.data[:5] + pack('>I', len(remaining)) + remaining
-                        maxSize = 1500
+                        maxSize = 1446
                         nalType, nri = (ord(remaining[0]) & 0x1f), (ord(remaining[0]) & 0x60)
                         if nalType == 5 or nalType == 1: # others are ignored for now
                             ts, marker = message.time * self._h264.rate / 1000, True # treat each Message as an access unit
