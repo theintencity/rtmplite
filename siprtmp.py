@@ -1052,6 +1052,7 @@ class MediaContext(object):
     def _rtp2rtmpH264(self, fmt, p):
 #        if _debug: print ' <-s', len(p.payload), repr(p.payload[:15])
         nalType, nri = ord(p.payload[0]) & 0x1f, ord(p.payload[0]) & 0x60
+#        if _debug: print ' <-s nalType=%r marker=%r ts=%r len=%r'%(nalType, p.marker, p.ts, len(p.payload))
         if nalType == 7: # SPS
             self._h2_SPS = p.payload
         elif nalType == 8: # PPS
@@ -1074,38 +1075,44 @@ class MediaContext(object):
                 self._h2_queue.append(p) # assumes sorted order by seq.
         
         messages = []
-        if len(self._h2_queue) >= 2 and (self._h2_queue[-1].nalType != self._h2_queue[-2].nalType or self._h2_queue[-1].ts != self._h2_queue[-2].ts):
-            if _debug: print 'clearing old queue since new packet has different nal-type or ts: %r != %r or %r != %r'%(self._h2_queue[-1].nalType, self._h2_queue[-2].nalType, self._h2_queue[-1].ts, self._h2_queue[-2].ts)
+        if len(self._h2_queue) >= 2 and (self._h2_queue[-1].ts != self._h2_queue[-2].ts):
+            if _debug: print 'clearing old queue since new packet has different ts: %r != %r'%(self._h2_queue[-1].ts, self._h2_queue[-2].ts)
             self._h2_queue[:] = self._h2_queue[-1:] # clear the queue
         if p.marker and len(self._h2_queue) > 0:
-            packets, self._h2_queue = self._h2_queue, []
+            queued, self._h2_queue = self._h2_queue, []
             # handle fragmentation and aggregation
-            first = packets[0]
-            nalType = first.nalType
-            payloads, newdata = [], ''
-            if nalType == 5 or nalType == 1:
-                newdata = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00' + ''.join([(pack('>I', len(x.payload)) + x.payload) for x in packets])
-                payloads.append(newdata)
-            elif nalType == 28: # fragmented packets
-                realType, realNri = (ord(first.payload[1]) & 0x1f), (ord(first.payload[0]) & 0x60)
-                naldata = pack('>B', realType | realNri) + ''.join([x.payload[2:] for x in packets])
-                newdata = ('\x17' if realType == 5 else '\x27') + '\x01\x00\x00\x00' + pack('>I', len(naldata)) + naldata
-                nalType = realType
-                payloads.append(newdata)
-            elif nalType == 24: # aggregated packets
-                newdata = ''
-                for x in packets: # assumes all aggregated packet of same type
-                    payload = x.payload[1:]
+            nalType, payloads, newdata, pendingdata, first = 0, [], '', [], queued[0]
+            
+            for q in queued:
+                if q.nalType == 5 or q.nalType == 1:
+                    if not newdata:
+                        nalType = q.nalType
+                        newdata = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00'
+                    newdata += pack('>I', len(q.payload)) + q.payload
+                elif q.nalType == 24: # expand aggregated packet
+                    payload = q.payload[1:]
                     while payload:
                         size, payload = unpack('>H', payload[:2])[0], payload[2:]
                         naldata, payload = payload[:size], payload[size:]
                         nt = ord(naldata[0]) & 0x1f
                         if nt == 5 or nt == 1: # don't handle 7 and 8 as they are already handled before
-                            nalType = nt
                             if not newdata:
+                                nalType = nt
                                 newdata = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00'
-                            if _debug: 'extract from aggregate type=%r len=%r'%(nalType, len(naldata))
+                            if _debug: print 'extract from aggregate type=%r len=%r'%(nalType, len(naldata))
                             newdata += pack('>I', len(naldata)) + naldata
+                elif q.nalType == 28: # aggregate all fragments
+                    if not newdata:
+                        nalType, realNri = (ord(q.payload[1]) & 0x1f), (ord(q.payload[0]) & 0x60)
+                        newdata = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00'
+                    pendingdata.append(q.payload[2:])
+                    if ord(q.payload[1]) & 0x40: # end bit
+                        remaining = pack('>B', nalType |  realNri) + ''.join(pendingdata)
+                        if _debug: print 'aggregated %r packets, len=%r'%(len(pendingdata), len(remaining))
+                        pendingdata[:] = []
+                        newdata += pack('>I', len(remaining)) + remaining
+                    else:
+                        continue
                 if newdata:
                     payloads.append(newdata)
             
@@ -1123,7 +1130,7 @@ class MediaContext(object):
                     self._h2_startTs = p.ts
                 if not self._h2_startTm:
                     self._h2_startTm = self._context.play_stream.client.relativeTime
-                nri = ord(newdata[0]) & 0x60
+#                nri = ord(newdata[0]) & 0x60
                 tm = int((first.ts - self._h2_startTs) * 1000 / self._h264.rate) + self._h2_startTm
 #                tm = int(tm/30) # Ekiga specific # TODO: make this ekiga specific
                 
