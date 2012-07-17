@@ -520,14 +520,24 @@ class FLV(object):
         '''Open the file for reading (type=read) or writing (type=record or append).'''
         if str(path).find('/../') >= 0 or str(path).find('\\..\\') >= 0: raise ValueError('Must not contain .. in name')
         if _debug: print 'opening file', path
-        self.tsp = self.tsr = 0; self.tsr0 = None; self.type = type
+        self.tsp = self.tsr = 0; self.tsr0 = None; self.tsr1 = 0; self.type = type
         if type in ('record', 'append'):
             try: os.makedirs(os.path.dirname(path), mode)
             except: pass
-            self.fp = open(path, ('w' if type == 'record' else 'a')+'b')
-            if type == 'record':
+            if type == 'record' or not os.path.exists(path): # if file does not exist, use record mode
+                self.fp = open(path, 'w+b')
                 self.fp.write('FLV\x01\x05\x00\x00\x00\x09\x00\x00\x00\x00') # the header and first previousTagSize
                 self.writeDuration(0.0)
+            else:
+                self.fp = open(path, 'r+b')
+                self.fp.seek(-4, os.SEEK_END)
+                ptagsize, = struct.unpack('>I', self.fp.read(4))
+                self.fp.seek(-4-ptagsize, os.SEEK_END)
+                bytes = self.fp.read(ptagsize)
+                type, len0, len1, ts0, ts1, ts2, sid0, sid1 = struct.unpack('>BBHBHBBH', bytes[:11])
+                ts = (ts0 << 16) | (ts1 & 0x0ffff) | (ts2 << 24)
+                self.tsr1 = ts + 20; # some offset after the last packet
+                self.fp.seek(0, os.SEEK_END)
         else: 
             self.fp = open(path, 'rb')
             magic, version, flags, offset = struct.unpack('!3sBBI', self.fp.read(9))
@@ -541,7 +551,8 @@ class FLV(object):
     def close(self):
         '''Close the underlying file for this object.'''
         if _debug: print 'closing flv file'
-        if self.type == 'record' and self.tsr0 is not None: self.writeDuration((self.tsr - self.tsr0)/1000.0)
+        if self.type in ('record', 'append') and self.tsr0 is not None:
+            self.writeDuration((self.tsr - self.tsr0)/1000.0)
         if self.fp is not None: 
             try: self.fp.close()
             except: pass
@@ -575,7 +586,7 @@ class FLV(object):
         if message.type == Message.AUDIO or message.type == Message.VIDEO:
             length, ts = message.size, message.time
             #if _debug: print 'FLV.write()', message.type, ts
-            if self.tsr0 is None: self.tsr0 = ts
+            if self.tsr0 is None: self.tsr0 = ts - self.tsr1
             self.tsr, ts = ts, ts - self.tsr0
             # if message.type == Message.AUDIO: print 'w', message.type, ts
             data = struct.pack('>BBHBHB', message.type, (length >> 16) & 0xff, length & 0x0ffff, (ts >> 16) & 0xff, ts & 0x0ffff, (ts >> 24) & 0xff) + '\x00\x00\x00' +  message.data
@@ -851,6 +862,16 @@ class App(object):
         return True # should return True so that the data is actually published in that stream
     def onPlayData(self, client, stream, message):
         return True # should return True so that data will be actually played in that stream
+    def getfile(self, path, name, root, mode):
+        if mode == 'play':
+            path = getfilename(path, name, root)
+            if not os.path.exists(path): return None
+            return FLV().open(path)
+        elif mode in ('record', 'append'):
+            path = getfilename(path, name, root)
+            return FLV().open(path, mode)
+#        elif stream.mode == 'live': FLV().delete(path) # TODO: this is commented out to avoid accidental delete
+        return None
 
 class Wirecast(App):
     '''A wrapper around App to workaround with wirecast publisher which does not send AVC seq periodically. It defines new stream variables
@@ -1103,10 +1124,7 @@ class FlashServer(object):
             inst.publishers[stream.name] = stream # store the client for publisher
             inst.onPublish(stream.client, stream)
             
-            path = getfilename(stream.client.path, stream.name, self.root)
-            if stream.mode in ('record', 'append'): 
-                stream.recordfile = FLV().open(path, stream.mode)
-            # elif stream.mode == 'live': FLV().delete(path) # TODO: this is commented out to avoid accidental delete
+            stream.recordfile = inst.getfile(stream.client.path, stream.name, self.root, stream.mode)
             response = Command(name='onStatus', id=cmd.id, tm=stream.client.relativeTime, args=[amf.Object(level='status', code='NetStream.Publish.Start', description='', details=None)])
             yield stream.send(response)
         except ValueError, E: # some error occurred. inform the app.
@@ -1127,12 +1145,10 @@ class FlashServer(object):
                 inst.players[name].append(stream)
             task = None
             if start >= 0 or start == -2 and name not in inst.publishers:
-                path = getfilename(stream.client.path, stream.name, self.root)
-                if os.path.exists(path):
-                    stream.playfile = FLV().open(path)
-                    if start > 0: stream.playfile.seek(start)
-                    task = stream.playfile.reader(stream)
-                elif start >= 0: raise ValueError, 'Stream name not found'
+                stream.playfile = inst.getfile(stream.client.path, stream.name, self.root, 'play')
+                if not stream.playfile: raise ValueError, 'Stream name not found'
+                if start > 0: stream.playfile.seek(start)
+                task = stream.playfile.reader(stream)
             if _debug: print 'playing stream=', name, 'start=', start
             inst.onPlay(stream.client, stream)
             
