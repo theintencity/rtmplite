@@ -34,6 +34,7 @@ from gevent import monkey, Greenlet, GreenletExit
 monkey.patch_socket()
 from gevent.server import StreamServer
 from gevent.queue import Queue, Empty 
+from gevent.coros import Semaphore
 
 import os, sys, traceback, time, struct, socket, random, amf, hashlib, hmac, random
 from struct import pack, unpack
@@ -98,6 +99,7 @@ class FlashClient(object):
         self._time0 = time.time()
         self.path, self.agent, self.streams, self._nextCallId, self._nextStreamId, self.objectEncoding, self._rpc = \
           None,      None,         {},           2,                1,                  0.0,             Message.RPC
+        self._write_lock = Semaphore()
         
     @property
     def relativeTime(self):
@@ -105,7 +107,13 @@ class FlashClient(object):
     
     def send(self, data):
         if self.sock is not None and data is not None:
-            self.sock.sendall(data)
+            self._write_lock.acquire()
+            try:
+                self.sock.sendall(data)
+            except:
+                if _debug: traceback.print_exc()
+            finally:
+                self._write_lock.release()
         
     def received(self, data):
         self.buffer += data
