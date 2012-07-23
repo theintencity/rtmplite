@@ -79,7 +79,7 @@ class Stream(object):
         
 class FlashClient(object):
     '''Represents a single Flash connection and client.'''
-    PING_SIZE, DEFAULT_CHUNK_SIZE, PROTOCOL_CHANNEL_ID = 1536, 128, 2 # constants
+    PING_SIZE, DEFAULT_CHUNK_SIZE, HIGH_WRITE_CHUNK_SIZE, PROTOCOL_CHANNEL_ID = 1536, 128, 4096, 2 # constants
     READ_WIN_SIZE, WRITE_WIN_SIZE = 1000000L, 1073741824L
     CHANNEL_MASK = 0x3F
 
@@ -516,6 +516,13 @@ class FlashClient(object):
             if start >= 0: raise ValueError, 'Stream name not found'
             if _debug: print 'playing stream=', name, 'start=', start
             inst.onPlay(self, stream)
+
+            # Default chunk size is 128. It is pretty small when we stream high audio and video quality.
+            # So, send the choosen chunk size to flash client.
+            self.writeChunkSize = self.HIGH_WRITE_CHUNK_SIZE
+            m0 = Message() # SetChunkSize
+            m0.time, m0.type, m0.data = self.relativeTime, Message.CHUNK_SIZE, struct.pack('>L', self.writeChunkSize)
+            self.writeMessage(m0)
             
 #            m1 = Message() # UserControl/StreamIsRecorded
 #            m1.time, m1.type, m1.data = self.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 4, stream.id)
