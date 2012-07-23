@@ -1050,9 +1050,10 @@ class MediaContext(object):
         return messages
         
     def _rtp2rtmpH264(self, fmt, p):
-#        if _debug: print ' <-s', len(p.payload), repr(p.payload[:15])
-        nalType, nri = ord(p.payload[0]) & 0x1f, ord(p.payload[0]) & 0x60
-#        if _debug: print ' <-s nalType=%r marker=%r ts=%r len=%r'%(nalType, p.marker, p.ts, len(p.payload))
+
+        messages = []
+        nalType = ord(p.payload[0]) & 0x1f
+
         if nalType == 7: # SPS
             self._h2_SPS = p.payload
         elif nalType == 8: # PPS
@@ -1070,23 +1071,30 @@ class MediaContext(object):
                     elif nt == 8:
                         self._h2_PPS = naldata
                         if _debug: print 'extract PPS from aggregated %r'%(naldata,)
-            if nalType in (5, 1, 28, 24):
+            if nalType in (1, 5, 28, 24):
                 p.nalType = nalType
                 self._h2_queue.append(p) # assumes sorted order by seq.
         
-        messages = []
+        if len(self._h2_queue) >= 2 and (self._h2_queue[-1].seq != (self._h2_queue[-2].seq + 1)):
+            if (self._h2_queue[-2].seq != 65535) or (self._h2_queue[-1].seq != 0):
+                if _debug: print 'new packet does not directly follow previous: %r != %r + 1'%(self._h2_queue[-1].seq, self._h2_queue[-2].seq)
+
         if len(self._h2_queue) >= 2 and (self._h2_queue[-1].ts != self._h2_queue[-2].ts):
             if _debug: print 'clearing old queue since new packet has different ts: %r != %r'%(self._h2_queue[-1].ts, self._h2_queue[-2].ts)
             self._h2_queue[:] = self._h2_queue[-1:] # clear the queue
+            
+        # we recieved the marker, so we know this is the end of the frame
         if p.marker and len(self._h2_queue) > 0:
             queued, self._h2_queue = self._h2_queue, []
             # handle fragmentation and aggregation
-            nalType, payloads, newdata, pendingdata, first = 0, [], '', [], queued[0]
-            
+            nalType, realNri, payloads, newdata, pendingdata = 0, 0, [], '', []
+
             for q in queued:
                 if q.nalType == 5 or q.nalType == 1:
                     if not newdata:
                         nalType = q.nalType
+                        # 0x17 (for intra-frame) or 0x27 (for non-intra frame)
+                        # 0x00 (configuration data) or 0x01 (picture data)
                         newdata = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00'
                     newdata += pack('>I', len(q.payload)) + q.payload
                 elif q.nalType == 24: # expand aggregated packet
@@ -1104,17 +1112,21 @@ class MediaContext(object):
                 elif q.nalType == 28: # aggregate all fragments
                     if not newdata:
                         nalType, realNri = (ord(q.payload[1]) & 0x1f), (ord(q.payload[0]) & 0x60)
+                        # 0x17 (for intra-frame) or 0x27 (for non-intra frame)
+                        # 0x00 (configuration data) or 0x01 (picture data)
                         newdata = ('\x17' if nalType == 5 else '\x27') + '\x01\x00\x00\x00'
                     pendingdata.append(q.payload[2:])
                     if ord(q.payload[1]) & 0x40: # end bit
-                        remaining = pack('>B', nalType |  realNri) + ''.join(pendingdata)
-                        if _debug: print 'aggregated %r packets, len=%r'%(len(pendingdata), len(remaining))
+                        remaining = pack('>B', nalType | realNri) + ''.join(pendingdata)
+                        if _debug: print 'aggregated %r packets, len=%r, type=%r'%(len(pendingdata), len(remaining), nalType)
                         pendingdata[:] = []
                         newdata += pack('>I', len(remaining)) + remaining
                     else:
                         continue
-                if newdata:
-                    payloads.append(newdata)
+                    
+            # we store the data of the frame
+            if newdata:
+                payloads.append(newdata)
             
             SPS, PPS, sentSeq = self._h2_SPS, self._h2_PPS, self._h2_sentSeq
             if self._context.play_stream is None or not PPS or not SPS or PPS and SPS and not sentSeq and nalType != 5:
@@ -1126,33 +1138,19 @@ class MediaContext(object):
             else:
                 if PPS and SPS and not sentSeq and nalType == 5:
                     self._h2_sentSeq = sentSeq = True
+                
+                # compute the timestamp
                 if not self._h2_startTs:
                     self._h2_startTs = p.ts
                 if not self._h2_startTm:
                     self._h2_startTm = self._context.play_stream.client.relativeTime
-#                nri = ord(newdata[0]) & 0x60
-                tm = int((first.ts - self._h2_startTs) * 1000 / self._h264.rate) + self._h2_startTm
-#                tm = int(tm/30) # Ekiga specific # TODO: make this ekiga specific
-                
-#                    if not self._h2_sentMetaData:
-#                        self._h2_sentMetaData = True
-#                        data = amf.AMF0()
-#                        data.write('onMetaData')
-#                        m = amf.Object()
-#                        # m.videocodecid, m.avcprofile, m.avclevel, m.videoframerate, m.width, m.height = 7.0, 66, 20, 25, 320, 240
-#                        m.videocodecid, m.width, m.height = 7.0, 320.0, 240.0
-#                        data.write(m)
-#                        payload = data.data.getvalue()
-#                        header = Header(time=tm, size=len(payload), type=Message.DATA, streamId=self._context.play_stream.id)
-#                        m = Message(header, payload)
-#                        # print repr(payload), m
-##                        if _debug: print 'f<- ', len(payload), repr(payload[:20])
-#                        messages.append(m)
-    
-                if payloads and nalType == 5: # send SPS/PPS
-                    # payloads.append('\27\x02\x00\x00\x00')
+                tm = (p.ts - self._h2_startTs) / (self._h264.rate / 1000) + self._h2_startTm
+
+                if payloads and nalType == 5: # send SPS/PPS                    
                     if _debug: print "   SPS", repr(SPS), "PPS", repr(PPS)
-                    data = '\x17\x00\x00\x00\x00\x01' + SPS[1:4] + '\xff\xe1' + pack('>H', len(SPS)) + SPS + '\x01' + pack('>H', len(PPS)) + PPS
+                    
+                    # 0x17 (1 if intra, 7 for H.264/AVC) 0x00 (configuration data)
+                    data = '\x17\x00\x00\x00\x00\x01' + SPS[1:4] + '\xff\xe1' + pack('>H', len(SPS)) + SPS + '\x01' + pack('>H', len(PPS)) + PPS                    
                     payloads.insert(0, data)
                 if self._context.play_stream:
                     messages.extend([Message(Header(time=tm, size=len(payload), type=Message.VIDEO, streamId=self._context.play_stream.id), payload) for payload in payloads])
