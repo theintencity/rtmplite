@@ -107,26 +107,114 @@ class SockStream(object):
             except: raise ConnectionClosed
                                 
 
+'''
+NOTE: Here is a part of the documentation to understand how the Chunks' headers work.
+      To have a complete documentation, YOU HAVE TO READ rtmp_specification_1.0.pdf (from page 13)
+
+This is the format of a chunk. Here, we store all except the chunk data:
+------------------------------------------------------------------------
+
++-------------+----------------+-------------------+--------------+
+| Basic header|Chunk Msg Header|Extended Time Stamp|   Chunk Data |
++-------------+----------------+-------------------+--------------+
+
+This are the formats of the basic header:
+-----------------------------------------
+
+ 0 1 2 3 4 5 6 7      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
++-+-+-+-+-+-+-+-+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|fmt|   cs id   |    |fmt|     0     |   cs id - 64  |    |fmt|     1     |        cs id - 64             | 
++-+-+-+-+-+-+-+-+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+  (cs id < 64)            (64 <= cs id < 320)                           (320 <= cs id)
+
+fmt store the format of the chunk message header. There are four different formats.
+
+
+Type 0 (fmt=00):
+----------------
+
+This type MUST be used at the start of a chunk stream, and whenever the stream timestamp goes backward (e.g., because of a backward seek).
+
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      timestamp                |                message length                 |message type id|                message stream id              |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+Type 1 (fmt=01):
+----------------
+
+Streams with variable-sized messages (for example, many video formats) SHOULD use this format for the first chunk of each new message after the first.
+
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5  
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                timestamp delta                |                message length                 |message type id|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+Type 2 (fmt=10):
+----------------
+
+Streams with constant-sized messages (for example, some audio and data formats) SHOULD use this format for the first chunk of each message after the first. 
+
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3   
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                timestamp delta                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+
+Type 3 (fmt=11):
+----------------
+
+Chunks of Type 3 have no header. Stream ID, message length and timestamp delta are not present; chunks of this type take values from
+the preceding chunk. When a single message is split into chunks, all chunks of a message except the first one, SHOULD use this type.
+
+Extended Timestamp:
+-------------------
+
+This field is transmitted only when the normal time stamp in the chunk message header is set to 0x00ffffff. If normal time stamp is 
+set to any value less than 0x00ffffff, this field MUST NOT be present. This field MUST NOT be present if the timestamp field is not 
+present. Type 3 chunks MUST NOT have this field. This field if transmitted is located immediately after the chunk message header
+and before the chunk data. 
+
+'''
 class Header(object):
+    # Chunk type 0 = FULL
+    # Chunk type 1 = MESSAGE
+    # Chunk type 2 = TIME
+    # Chunk type 3 = SEPARATOR
     FULL, MESSAGE, TIME, SEPARATOR, MASK = 0x00, 0x40, 0x80, 0xC0, 0xC0
     
     def __init__(self, channel=0, time=0, size=None, type=None, streamId=0):
-        self.channel, self.time, self.size, self.type, self.streamId = channel, time, size, type, streamId
-        if channel<64: self.hdrdata = chr(channel)
-        elif channel<(64+256): self.hdrdata = '\x00'+chr(channel-64)
-        else: self.hdrdata = '\x01'+chr((channel-64)%256)+chr((channel-64)/256) 
+        
+        self.channel = channel   # in fact, this will be the fmt + cs id
+        self.time = time         # timestamp[delta]
+        self.size = size         # message length
+        self.type = type         # message type id
+        self.streamId = streamId # message stream id
+        
+        if (channel < 64): self.hdrdata = struct.pack('>B', channel)
+        elif (channel < 320): self.hdrdata = '\x00' + struct.pack('>B', channel-64)
+        else: self.hdrdata = '\x01' + struct.pack('>H', channel-64)
     
     def toBytes(self, control):
-        data = chr(ord(self.hdrdata[0]) | control) + self.hdrdata[1:]
-        if control != Header.SEPARATOR: 
-            data += struct.pack('>I', self.time if self.time < 0xFFFFFF else 0xFFFFFF)[1:]  # add time in 3 bytes
+        data = chr(ord(self.hdrdata[0]) | control)
+        if len(self.hdrdata) >= 2: data += self.hdrdata[1:] 
+        
+        # if the chunk type is not 3
+        if control != Header.SEPARATOR:
+            data += struct.pack('>I', self.time if self.time < 0xFFFFFF else 0xFFFFFF)[1:] # add time in 3 bytes
+            # if the chunk type is not 2
             if control != Header.TIME:
-                data += struct.pack('>I', self.size & 0xFFFFFFFF)[1:]  # size
-                data += chr(self.type)                    # type
+                data += struct.pack('>I', self.size)[1:] # add size in 3 bytes
+                data += struct.pack('>B', self.type) # add type in 1 byte
+                # if the chunk type is not 1
                 if control != Header.MESSAGE:
-                    data += struct.pack('<I', self.streamId & 0xFFFFFFFF)  # add streamId
-        if self.time >= 0xFFFFFF:
-            data += struct.pack('>I', self.time & 0xFFFFFFFF)
+                    data += struct.pack('<I', self.streamId) # add streamId in little-endian 4 bytes
+            # add the extended time part to the header if timestamp[delta] >= 16777215
+            if self.time >= 0xFFFFFF:
+                data += struct.pack('>I', self.time)
         return data
 
     def __repr__(self):
@@ -139,9 +227,9 @@ class Header(object):
 
 class Message(object):
     # message types: RPC3, DATA3,and SHAREDOBJECT3 are used with AMF3
-    CHUNK_SIZE,   ABORT,   ACK,   USER_CONTROL, WIN_ACK_SIZE, SET_PEER_BW, AUDIO, VIDEO, DATA3, SHAREDOBJ3, RPC3, DATA, SHAREDOBJ, RPC = \
-    0x01,         0x02,    0x03,  0x04,         0x05,         0x06,        0x08,  0x09,  0x0F,  0x10,       0x11, 0x12, 0x13,      0x14
-    type_name = dict(enumerate('unknown chunk-size abort ack user-control win-ack-size set-peer-bw unknown audio video unknown unknown unknown unknown unknown data3 sharedobj3 rpc3 data sharedobj rpc'.split()))
+    CHUNK_SIZE,   ABORT,   ACK,   USER_CONTROL, WIN_ACK_SIZE, SET_PEER_BW, AUDIO, VIDEO, DATA3, SHAREDOBJ3, RPC3, DATA, SHAREDOBJ, RPC, AGGREGATE = \
+    0x01,         0x02,    0x03,  0x04,         0x05,         0x06,        0x08,  0x09,  0x0F,  0x10,       0x11, 0x12, 0x13,      0x14, 0x16
+    type_name = dict(enumerate('unknown chunk-size abort ack user-control win-ack-size set-peer-bw unknown audio video unknown unknown unknown unknown unknown data3 sharedobj3 rpc3 data sharedobj rpc unknown aggregate'.split()))
     
     def __init__(self, hdr=None, data=''):
         self.header, self.data = hdr or Header(), data
@@ -161,7 +249,7 @@ class Message(object):
         return Message(self.header.dup(), self.data[:])
                 
 class Protocol(object):
-    PING_SIZE, DEFAULT_CHUNK_SIZE, PROTOCOL_CHANNEL_ID = 1536, 128, 2 # constants
+    PING_SIZE, DEFAULT_CHUNK_SIZE, HIGH_WRITE_CHUNK_SIZE, PROTOCOL_CHANNEL_ID = 1536, 128, 4096, 2 # constants
     READ_WIN_SIZE, WRITE_WIN_SIZE = 1000000L, 1073741824L
     
     def __init__(self, sock):
@@ -188,6 +276,7 @@ class Protocol(object):
 #            yield self.writeMessage(response)
         elif msg.type == Message.CHUNK_SIZE:
             self.readChunkSize = struct.unpack('>L', msg.data)[0]
+            if _debug: print "set read chunk size to %d" % self.readChunkSize
         elif msg.type == Message.WIN_ACK_SIZE:
             self.readWinSize, self.readWinSize0 = struct.unpack('>L', msg.data)[0], self.stream.bytesRead
         elif msg.type == Message.USER_CONTROL:
@@ -364,19 +453,58 @@ class Protocol(object):
                 if len(data) == header.size:
                     if channel in self.incompletePackets:
                         del self.incompletePackets[channel]
+                        if _debug:
+                            print 'aggregated %r bytes message: readChunkSize(%r) x %r'%(len(data), self.readChunkSize, len(data) / self.readChunkSize)
                 else:
                     data, self.incompletePackets[channel] = data[:header.size], data[header.size:]
                 
                 hdr = Header(channel=header.channel, time=header.currentTime, size=header.size, type=header.type, streamId=header.streamId)
                 msg = Message(hdr, data)
-                if _debug: print 'Protocol.parseMessage msg=', msg
-                try:
-                    if channel == Protocol.PROTOCOL_CHANNEL_ID:
-                        yield self.protocolMessage(msg)
-                    else: 
-                        yield self.messageReceived(msg)
-                except:
-                    if _debug: print 'Protocol.parseMessages exception', (traceback and traceback.print_exc() or None)
+
+                if hdr.type == Message.AGGREGATE:
+                    ''' see http://code.google.com/p/red5/source/browse/java/server/trunk/src/org/red5/server/net/rtmp/event/Aggregate.java / getParts()
+                    '''
+                    if _debug: print 'Protocol.parseMessages aggregated msg=', msg 
+                    aggdata = data;
+                    while len(aggdata) > 0:
+                        '''
+                        type=1 byte
+                        size=3 bytes
+                        time=4 bytes
+                        streamId= 4 bytes
+                        data= size bytes
+                        backPointer=4 bytes, value == size
+                        '''
+                        subtype = ord(aggdata[0])
+                        subsize = struct.unpack('!I', '\x00' + aggdata[1:4])[0]
+                        subtime = struct.unpack('!I', aggdata[4:8])[0]
+                        substreamid = struct.unpack('<I', aggdata[8:12])[0]     
+                        subheader = Header(channel, time=subtime, size=subsize, type=subtype, streamId=substreamid) # TODO: set correct channel
+                        aggdata = aggdata[11:] # skip header       
+                        submsgdata = aggdata[:subsize] # get message data 
+                        submsg = Message(subheader, submsgdata) 
+                        
+                        yield self.parseMessage(submsg)
+                                        
+                        aggdata = aggdata[subsize:] # skip message data
+                    
+                        backpointer = struct.unpack('!I', aggdata[0:4])[0]
+                        if backpointer != subsize:
+                            print 'Warning aggregate submsg backpointer=%r != %r' % (backpointer, subsize)                          
+                        aggdata = aggdata[4:] # skip back pointer, go to next message
+                else:
+                    yield self.parseMessage(msg)
+                
+
+    def parseMessage(self, msg):
+        try:            
+            if _debug: print 'Protocol.parseMessage msg=', msg            
+            if msg.header.channel == Protocol.PROTOCOL_CHANNEL_ID:
+                yield self.protocolMessage(msg)
+            else: 
+                yield self.messageReceived(msg)
+        except:
+            if _debug: print 'Protocol.parseMessage exception', (traceback and traceback.print_exc() or None)
 
     def write(self):
         '''Writes messages to stream'''
@@ -1152,9 +1280,12 @@ class FlashServer(object):
             if _debug: print 'playing stream=', name, 'start=', start
             inst.onPlay(stream.client, stream)
             
-#            m0 = Message() # SetChunkSize
-#            m0.time, m0.type, m0.data = stream.client.relativeTime, Message.CHUNK_SIZE, struct.pack('>L', stream.client.writeChunkSize)
-#            yield stream.client.writeMessage(m0)
+            # Default chunk size is 128. It is pretty small when we stream high audio and video quality.
+            # So, send the choosen chunk size to flash client.
+            stream.client.writeChunkSize = Protocol.HIGH_WRITE_CHUNK_SIZE
+            m0 = Message() # SetChunkSize
+            m0.time, m0.type, m0.data = stream.client.relativeTime, Message.CHUNK_SIZE, struct.pack('>L', stream.client.writeChunkSize)
+            yield stream.client.writeMessage(m0)
             
 #            m1 = Message() # UserControl/StreamIsRecorded
 #            m1.time, m1.type, m1.data = stream.client.relativeTime, Message.USER_CONTROL, struct.pack('>HI', 4, stream.id)
