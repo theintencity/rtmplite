@@ -6,6 +6,9 @@ rtmplite/rtmpclient.py
 rtmplite/rtmpt.py
 rtmplite/siprtmp.py
 rtmplite/siprtmp_gevent.py
+rtmplite/aes.py
+rtmplite/rtmfp.py
+rtmplite/test_load.py
 rtmplite/testClient/bin-debug/AC_OETags.js
 rtmplite/testClient/bin-debug/history/history.css
 rtmplite/testClient/bin-debug/history/history.js
@@ -21,6 +24,7 @@ rtmplite/videoPhone/Makefile
 rtmplite/videoPhone/bin-release/AC_OETags.js
 rtmplite/videoPhone/bin-release/playerProductInstall.swf
 rtmplite/videoPhone/bin-release/VideoPhone.html
+rtmplite/videoPhone/bin-release/VideoPhone.swf
 rtmplite/videoPhone/bin-release/VideoPhone11.swf
 rtmplite/videoPhone/bin-release/VideoPhone45.swf
 rtmplite/videoPhone/bin-release/history/history.css

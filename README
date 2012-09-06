@@ -1,3 +1,13 @@
+More details at
+http://code.google.com/p/rtmplite and http://code.google.com/p/siprtmp
+--
+Copyright (c) 2007-2009, Mamta Singh.
+Copyright (c) 2010-2011, Kundan Singh. All rights reserved.
+Copyright (c) 2011-2012, Intencity Cloud Technologies. All rights reserved.
+Copyright (c) 2011, Cumulus Python. No rights reserved.
+
+--
+
 The main program is rtmp.py. Please see the embedded documentation in that file.
 Some parts of the documentation are copied here. Other modules such as amf, util
 and multitask are used from elsewhere and contain their respective copyright 
@@ -11,6 +21,9 @@ following example to start the gateway.
 --
 The rtmpclient module implements a simple RTMP client. Please see the documentation
 in rtmpclient.py source file on how it works and how it can be used.
+--
+The rtmfp module implements a simple and imcomplete RTMFP rendezvous server. Please
+see the documentation in rtmfp.py source file on how it works.
 
 -- 
 Dependencies: Python 2.6 and Python 2.5
