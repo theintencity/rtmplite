@@ -866,9 +866,9 @@ class MediaContext(object):
         self._h1_cfgVer = self._h1_profileIdc = self._h1_profileCompat = self._h1_levelIdc = self._h1_lenSize = self._h1_SPS = self._h1_PPS = self._h1_data = None
         self._h2_SPS, self._h2_PPS, self._h2_sentSeq, self._h2_sentMetaData, self._h2_startTs, self._h2_startTm, self._h2_queue, self._h2_firstTime, self._h2_lastFIR = None, None, False, False, 0, 0, [], True, 0
         
-        # Audio transcoder state
+        # Audio transcoder state: 1 for rtmp->rtp and 2 for rtp->rtmp
         self._au1_resample = self._au1_speex2lin = self._au1_lin2speex = self._au1_fmt = self._au2_lin2speex = None # transcoder states for audiospeex module.
-        self._au1_ts = self._au2_ts0 = self._au2_tm = 0
+        self._au1_ts = self._au2_ts0 = self._au2_tm = self._au2_ssrc = 0
         
     def rtmp2rtp(self, stream, message): # public method called by Context to transcode RTMP to RTP for media.
         if self.session: # order of following processing is important
@@ -1243,7 +1243,10 @@ class MediaContext(object):
                 raise ValueError, 'ignoring unsupported payload type %r %r/%r'%(fmt.pt, fmt.name, fmt.rate)
             # TODO: never send speex/16000 to Flash after transcoding
             speex_data, self._au2_lin2speex = audiospeex.lin2speex(linear, sample_rate=8000, state=self._au2_lin2speex)
+        if self._au2_ssrc and p.ssrc != self._au2_ssrc: # ssrc has probably changed, so reset timers.
+            self._au2_ts0 = self._au2_tm = self._au2_ssrc = 0
         if not self._au2_ts0: self._au2_ts0 = p.ts
+        if not self._au2_ssrc: self._au2_ssrc = p.ssrc
         if not self._au2_tm: self._au2_tm = self._context.play_stream.client.relativeTime
         payload, tm = type + speex_data, (p.ts - self._au2_ts0) / (input_rate / 1000) + self._au2_tm
         header = Header(time=tm, size=len(payload), type=Message.AUDIO, streamId=self._context.play_stream.id)
