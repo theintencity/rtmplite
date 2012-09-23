@@ -730,7 +730,9 @@ class FLV(object):
             while self.fp is not None:
                 bytes = self.fp.read(11)
                 if len(bytes) == 0:
-                    response = Command(name='onStatus', id=stream.id, tm=stream.client.relativeTime, args=[amf.Object(level='status',code='NetStream.Play.Stop', description='File ended', details=None)])
+                    try: tm = stream.client.relativeTime
+                    except: tm = 0
+                    response = Command(name='onStatus', id=stream.id, tm=tm, args=[amf.Object(level='status',code='NetStream.Play.Stop', description='File ended', details=None)])
                     yield stream.send(response.toMessage())
                     break
                 type, len0, len1, ts0, ts1, ts2, sid0, sid1 = struct.unpack('>BBHBHBBH', bytes)
