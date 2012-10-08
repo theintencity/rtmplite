@@ -1276,9 +1276,10 @@ class FlashServer(object):
             task = None
             if start >= 0 or start == -2 and name not in inst.publishers:
                 stream.playfile = inst.getfile(stream.client.path, stream.name, self.root, 'play')
-                if not stream.playfile: raise ValueError, 'Stream name not found'
-                if start > 0: stream.playfile.seek(start)
-                task = stream.playfile.reader(stream)
+                if stream.playfile:
+                    if start > 0: stream.playfile.seek(start)
+                    task = stream.playfile.reader(stream)
+                elif start >= 0: raise ValueError, 'Stream name not found'
             if _debug: print 'playing stream=', name, 'start=', start
             inst.onPlay(stream.client, stream)
             
