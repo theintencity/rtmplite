@@ -112,11 +112,17 @@ class NetConnection(object):
         if _debug: print 'NetConnection.connect url=', url, 'host=', host, 'port=', port
         try: sock.connect((host, int(port)))
         except: raise StopIteration, False
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # make it non-block
-        self.client = yield Client(sock).handshake()
-        result, fault = yield self.client.send(Command(name='connect', cmdData=self.data, args=args), timeout=timeout)
-        if _debug: print 'NetConnection.connect result=', result, 'fault=', fault
-        raise StopIteration, (result is not None)
+        try: 
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # make it non-block
+            self.client = yield Client(sock).handshake()
+            result, fault = yield self.client.send(Command(name='connect', cmdData=self.data, args=args), timeout=timeout)
+            if _debug: print 'NetConnection.connect result=', result, 'fault=', fault
+            raise StopIteration, (result is not None)
+        except: 
+            if _debug: print 'NetConnection.connect failed to do handshake', sys.exc_info()[1]
+            try: sock.close()
+            except: pass
+            raise StopIteration, False
     
     def close(self): # disconnect the connection with the server
         if self.client is not None: 
@@ -192,7 +198,9 @@ class RTMPReader(Resource): # connect to RTMP URL and play the stream identified
     def open(self, url):
         self.url, options = url, dict(map(lambda x: tuple(x.split('=', 1)+[''])[:2], url[7:].partition('?')[2].split('&')))
         self.timeout, self.stream = int(options['timeout']) if 'timeout' in options else 10, options['id'] if 'id' in options else None
-        if not self.stream: raise StopIteration, None # id property is MUST in rtmp URL.
+        if not self.stream:
+            if _debug: print 'missing id parameter in rtmp url' 
+            raise StopIteration, None # id property is MUST in rtmp URL.
         if _debug: print 'RTMPReader.open timeout=', self.timeout, 'stream=', self.stream, 'url=', self.url
         self.nc = NetConnection(); result = yield self.nc.connect(self.url, timeout=self.timeout)
         if not result: raise StopIteration, None
