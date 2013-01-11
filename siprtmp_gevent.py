@@ -1165,7 +1165,7 @@ class Context(object):
                     except:
                         media.close()
                         if self._connectTask is not None: raise
-                        else: raise StopIteration(None) # else call was cancelled in another task
+                        else: return # else call was cancelled in another task
                     self._connectTask = None # because the generator returned, and no more pending outgoing call
                     if session: # call connected
                         self.media, self.session, session.media = media, session, media.session

@@ -636,6 +636,8 @@ class Context(object):
                         yield self.client.call('rejected', reason)
                 else: yield self.client.call('rejected', 'Already in an active or pending call')
             else: yield self.client.call('rejected', 'Registration required before making a call')
+        except StopIteration:
+            if _debug: print '  stopping invite generator'
         except:
             if _debug: print '  exception in invite', (sys and sys.exc_info() or None)
             if _debug: traceback.print_exc()
