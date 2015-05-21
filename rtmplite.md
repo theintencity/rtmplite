@@ -23,11 +23,10 @@ Our white paper on <a href='http://arxiv.org/pdf/1107.0011v1'>Flash based audio 
 
 **New** in svn r125: H.264 now works between Bria 3 and Flash Player 11.2.202.96 (or later). See [this](http://p2p-sip.blogspot.com/2012/01/translating-h264-between-flash-player.html) article on _Translating H264 between Flash Player and SIP/RTP_ for details.
 
-<a href='Hidden comment: 
-*New* in version 8.0 (svn r118, p2p-sip svn r48): Added experimental support for H.264 and G.711 available in Flash Player 11. The gateway can translate with SIP video phones such as Ekiga. *Use latest from SVN* instead of download archive to get important bug fixes.
+<!--
+New in version 8.0 (svn r118, p2p-sip svn r48): Added experimental support for H.264 and G.711 available in Flash Player 11. The gateway can translate with SIP video phones such as Ekiga. *Use latest from SVN* instead of download archive to get important bug fixes.
 
 New in svn r83: In siprtmp.py, added support for transcoding between speex and pcmu/pcma voice codecs using the [py-audio](https://github.com/theintencity/py-audio) project. Just follow py-audio build instructions and place the audiospeex.so in your PYTHONPATH before starting siprtmp.py. Requires p2p-sip r37.
-
 
 New in version 7.5 (svn r74): Added gevent-based version of the server and gateway. See siprtmp_gevent.py. Requires p2p-sip r33.
 
@@ -36,7 +35,7 @@ New in version 7.2 (svn r45): Fixed interoperability with ffmpeg, so that you ca
 New in version 7.0 (svn r38): Fixed the video freeze problem that happened after 2-5 min.
 
 New in version 6.0: Fixed several timing related bugs for recording, playback and live conferencing.
-'></a>
+-->
 
 ## History ##
 
