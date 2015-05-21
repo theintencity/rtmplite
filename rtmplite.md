@@ -26,7 +26,7 @@ Our white paper on <a href='http://arxiv.org/pdf/1107.0011v1'>Flash based audio 
 <a href='Hidden comment: 
 *New* in version 8.0 (svn r118, p2p-sip svn r48): Added experimental support for H.264 and G.711 available in Flash Player 11. The gateway can translate with SIP video phones such as Ekiga. *Use latest from SVN* instead of download archive to get important bug fixes.
 
-New in svn r83: In siprtmp.py, added support for transcoding between speex and pcmu/pcma voice codecs using the [https://github.com/theintencity/py-audio py-audio] project. Just follow py-audio build instructions and place the audiospeex.so in your PYTHONPATH before starting siprtmp.py. Requires p2p-sip r37.
+New in svn r83: In siprtmp.py, added support for transcoding between speex and pcmu/pcma voice codecs using the [py-audio](https://github.com/theintencity/py-audio) project. Just follow py-audio build instructions and place the audiospeex.so in your PYTHONPATH before starting siprtmp.py. Requires p2p-sip r37.
 
 
 New in version 7.5 (svn r74): Added gevent-based version of the server and gateway. See siprtmp_gevent.py. Requires p2p-sip r33.
