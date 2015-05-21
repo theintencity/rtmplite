@@ -7,11 +7,12 @@ More details in [rtmplite](/rtmplite.md) and [siprtmp](/siprtmp.md)
 
 # Copyright #
 
-Copyright (c) 2007-2009, Mamta Singh.
-Copyright (c) 2010-2011, Kundan Singh. All rights reserved.
-Copyright (c) 2011-2012, Intencity Cloud Technologies. All rights reserved.
-Copyright (c) 2011, Cumulus Python. No rights reserved.
+Copyright (c) 2007-2009, Mamta Singh.  
+Copyright (c) 2010-2011, Kundan Singh. All rights reserved.  
+Copyright (c) 2011-2012, Intencity Cloud Technologies. All rights reserved.  
+Copyright (c) 2011, Cumulus Python. No rights reserved.  
 
+See [contributors](/people.png).
 
 # RTMP server #
 
