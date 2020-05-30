@@ -5,6 +5,8 @@ More details in [rtmplite](/rtmplite.md) and [siprtmp](/siprtmp.md)
 > Additionally the documentation from <https://code.google.com/p/siprtmp> was merged on May 17, 2015  
 > Please see these individual description files for [rtmplite](/rtmplite.md) or [siprtmp](/siprtmp.md)  
 
+**New:** The new RTClite project is a superset of this RTMPlite project. Please migrate to or start using the [RTClite project](https://github.com/theintencity/rtclite) project instead of this. More information at https://github.com/theintencity/rtclite
+
 # Copyright #
 
 Copyright (c) 2007-2009, Mamta Singh.  
